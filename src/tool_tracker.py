@@ -41,6 +41,12 @@ class ToolUsageTracker:
         for k, v in values.items():
             if not isinstance(k, str):
                 raise TypeError(f"final output var name must be str, got {type(k).__name__}")
+            if not isinstance(v, str):
+                raise TypeError(
+                    "final output var values must be strings. "
+                    "Build a display-ready snippet string in python_repl (prose, bullets, CSV text, etc.) "
+                    "and register that string. For scalars, register str(value)."
+                )
             self.final_output_vars[k] = v
 
     def get_final_output_vars(self) -> Dict[str, Any]:

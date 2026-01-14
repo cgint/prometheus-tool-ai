@@ -41,17 +41,20 @@ Key behaviors:
 
 Registering data for your final answer:
 - Call `register_for_final_output(name=value, ...)` to register computed values.
-- The names you use become placeholders: `register_for_final_output(item_count=42)` → use `{{item_count}}` in your answer.
-- Register ALL computed data: counts, totals, strings, tables, etc.
+- The names you use become placeholders: `register_for_final_output(item_count=str(42))` → use `{{item_count}}` in your answer.
+- Register ALL computed data as STRINGS. Final-output variables are display snippets that will be spliced into your answer.
+  - For scalars, register `str(value)`.
+  - For structured data (dict/list/tuples), build the exact display text you want (sentences, bullets, CSV text, etc.)
+    and register that string. Do NOT register raw Python objects.
 
 Example:
   # In python_repl: compute and register
-  n = len(items)
-  table = "| Name | Value |\\n| foo | 123 |"
-  register_for_final_output(item_count=n, results_table=table)
+  n_str = str(len(items))
+  items_bullets = "\\n".join("- " + str(item) for item in items)
+  register_for_final_output(item_count=n_str, items_list=items_bullets)
 
   # In your final answer: use the placeholders
-  "I found **{{item_count}}** items.\\n\\n{{results_table}}"
+  "I found **{{item_count}}** items:\\n\\n{{items_list}}"
 
 Available functions (callable from Python):
 {tool_catalog}
@@ -161,10 +164,10 @@ Available functions (callable from Python):
             """Register named values for late-binding into the final answer.
 
             Supported call styles:
-              - register_for_final_output({"total_count": 8})
-              - register_for_final_output(total_count=8)
-              - register_for_final_output([("total_count", 8), ("blob", big_str)])
-              - register_for_final_output([{"total_count": 8}, {"blob": big_str}])
+              - register_for_final_output({"total_count": str(8)})
+              - register_for_final_output(total_count=str(8))
+              - register_for_final_output([("total_count", str(8)), ("blob", big_str)])
+              - register_for_final_output([{"total_count": str(8)}, {"blob": big_str}])
             """
             values: Dict[str, Any] = {}
 
@@ -192,6 +195,13 @@ Available functions (callable from Python):
                 raise TypeError("register_for_final_output expects a dict, a list, or kwargs")
 
             values.update(kwargs)
+            non_str = [(k, type(v).__name__) for k, v in values.items() if not isinstance(v, str)]
+            if non_str:
+                bad = ", ".join(f"{k}={t}" for k, t in non_str)
+                raise TypeError(
+                    "register_for_final_output only accepts string values (display-ready snippets). "
+                    f"Non-strings: {bad}. Convert scalars with str(...), and format structured data into text first."
+                )
             tracker.register_final_output_vars(values)
             return f"registered: {sorted(values.keys())}"
 

@@ -13,8 +13,11 @@ class AgentSignature(dspy.Signature):
 
     POLICY:
     - Use python_repl to compute results.
-    - Register ALL computed data (scalars, strings, tables) as named parts using `register_for_final_output(...)`.
-    - In your final answer, use placeholders like `{count}`, `{table}`.
+    - Register ALL computed data as named parts using `register_for_final_output(...)`.
+    - Final-output variables MUST be STRINGS (display-ready snippets). Convert scalars with `str(...)`.
+      For structured data (lists/dicts), format it into the exact text you want to appear in the final answer,
+      then register that string.
+    - In your final answer, use placeholders like `{count}`, `{sequence}`, `{some_snippet}`.
     - NEVER paste computed data directly; ONLY use placeholders.
     """
     question = dspy.InputField()
