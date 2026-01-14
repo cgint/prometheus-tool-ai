@@ -66,49 +66,48 @@ def prom_range(promql: str, start: str, end: str = "now", step: str = "30s") -> 
     return _client().query_range(promql, start_rfc3339=s, end_rfc3339=e, step_seconds=step_seconds)
 
 
-def build_python_repl_tool(tracker: ToolUsageTracker):
-    """Build a python_repl tool with per-run state and access to prior tool outputs.
+def build_python_repl_tool(tracker: ToolUsageTracker, tools: List[dspy.Tool]) -> dspy.Tool:
+    """Build a persistent python_repl tool.
 
-    Python available in `code` (read-only bindings from prior tool calls):
-    - `prom_query_0`, `prom_query_1`, ...: outputs of previous prom_query calls
-    - `<tool_name>_<n>`: outputs of other tools (0-based, per tool)
-    - `_`: output of the most recent non-python tool call
+    This REPL provides:
+    - A persistent Python state across tool calls (assign variables and reuse them).
+    - Read-only bindings to prior *tool outputs*:
+      - `<tool_name>_<n>` for each tool call (0-based, per tool)
+      - `_` for the most recent non-python tool output
+    - A set of Python-callable functions injected at runtime (the caller decides which tools are available).
 
-    Python also has access to *tool functions* (which are logged to `tracker`):
-    - `prom_buildinfo()`, `prom_metrics(...)`, `prom_labels()`, `prom_label_values(...)`
-    - `prom_query(...)`, `prom_range(...)`
-
-    Prefer using the bindings (e.g. `len(prom_query_0['data']['result'])`) instead of
-    inlining large payloads.
-
-    State is preserved across python_repl calls within a single agent run.
+    The goal is to enable iterative "peek → compute" workflows without hardcoding tool knowledge.
     """
+
+    def _format_tool_line(t: dspy.Tool) -> str:
+        name = t.name
+        args = t.args
+        desc = t.desc
+        return f"- {name} - {args} -  {desc}"
+
+    tool_catalog = "\n".join(_format_tool_line(t) for t in tools)
+
+    repl_instructions_and_tool_info = f"""Persistent Python scratchpad.
+
+Use this REPL to iteratively explore data and compute results.
+
+Key behaviors:
+- State persists across calls: assign to variables and reuse them later.
+- Single expression returns a value; multi-line code runs via exec, so print what you want to see.
+- Prefer a few multi-line steps per call (fetch + compact peeks), then follow up with additional calls.
+
+Available functions (callable from Python):
+{tool_catalog}
+"""
 
     state: Dict[str, Any] = {}
 
     def python_repl(code: str) -> str:
-        """Evaluate Python for calculations and light inspection.
-
-        Available inside this REPL:
-        - Prometheus helpers: `prom_query(...)`, `prom_range(...)`, `prom_metrics(...)`, `prom_labels()`, `prom_label_values(...)`, `prom_buildinfo()`.
-          These are normal Python callables and their calls are logged like tools.
-
-        Tips:
-        - State persists across python_repl calls: assign to variables and reuse them later.
-        - Prefer *multiple small python_repl calls*: fetch/peek first, then compute.
-        - Use "peek" operations to learn the data shape instead of guessing (e.g. `type(x)`, `x.keys()` for dicts,
-          `len(x)`, slicing like `x[:3]` for lists).
-
-        Generic example flow (you choose the actual query and fields):
-        1) `resp = prom_query('...')`
-        2) `resp.keys()`
-        3) `data = resp.get('data')`
-        4) `type(data)`
-        """
-
+        import collections
         import contextlib
         import io
         import math
+        import sys
 
         safe_builtins: Dict[str, Any] = {
             "abs": abs,
@@ -130,48 +129,38 @@ def build_python_repl_tool(tracker: ToolUsageTracker):
             "sorted": sorted,
             "enumerate": enumerate,
             "print": print,
-            # Introspection helpers for "peeking"
             "type": type,
             "isinstance": isinstance,
             "repr": repr,
+            "dir": dir,
+            "hasattr": hasattr,
+            "Counter": collections.Counter,
         }
 
-        def _wrap_tool(tool_name: str, func):
+        tools_by_name: Dict[str, dspy.Tool] = {}
+        for t in tools:
+            name = t.name or getattr(t.func, "__name__", type(t.func).__name__)
+            tools_by_name[name] = t
+
+        def tool_names() -> List[str]:
+            return sorted(tools_by_name.keys())
+
+        def _wrap_tool(tool: dspy.Tool):
+            tool_name = tool.name or getattr(tool.func, "__name__", "tool")
+            func = tool.func
+
             def _wrapped(*args, **kwargs):
-                import inspect
-
-                # Convenience aliases (helps the model iterate without memorizing exact arg names).
-                if tool_name in {"prom_query", "prom_range"} and "query" in kwargs and "promql" not in kwargs:
-                    q = kwargs.pop("query")
-                    kwargs["promql"] = q
-
-                try:
-                    bound = inspect.signature(func).bind_partial(*args, **kwargs)
-                    bound.apply_defaults()
-                    inputs = dict(bound.arguments)
-                except Exception:
-                    inputs = {"args": list(args), "kwargs": dict(kwargs)}
-
+                inputs = {"args": list(args), "kwargs": dict(kwargs)}
                 out = func(*args, **kwargs)
-                import contextlib as _contextlib
-                import sys as _sys
-
                 # Ensure tracker prints are not captured as python_repl output.
-                with _contextlib.redirect_stdout(_sys.__stdout__):
+                with contextlib.redirect_stdout(sys.__stdout__):
                     tracker.log_tool_call(tool_name, inputs, out)
                 return out
 
             _wrapped.__name__ = tool_name
             return _wrapped
 
-        tools_env: Dict[str, Any] = {
-            "prom_buildinfo": _wrap_tool("prom_buildinfo", prom_buildinfo),
-            "prom_metrics": _wrap_tool("prom_metrics", prom_metrics),
-            "prom_labels": _wrap_tool("prom_labels", prom_labels),
-            "prom_label_values": _wrap_tool("prom_label_values", prom_label_values),
-            "prom_query": _wrap_tool("prom_query", prom_query),
-            "prom_range": _wrap_tool("prom_range", prom_range),
-        }
+        tools_env: Dict[str, Any] = {name: _wrap_tool(t) for name, t in tools_by_name.items()}
 
         bindings: Dict[str, Any] = {}
         per_tool_counts: Dict[str, int] = {}
@@ -186,15 +175,16 @@ def build_python_repl_tool(tracker: ToolUsageTracker):
             bindings[f"{tool_name}_{idx}"] = out
             bindings["_"] = out
 
-        env: Dict[str, Any] = {"__builtins__": safe_builtins, "math": math}
+        env: Dict[str, Any] = {
+            "__builtins__": safe_builtins,
+            "math": math,
+            "tool_names": tool_names,
+        }
         env.update(tools_env)
         env.update(state)
         env.update(bindings)
 
-        if ";" in code:
-            return "ERROR: Please avoid semicolons; split work across multiple python_repl calls."
-
-        if len(code.splitlines()) > 12:
+        if len(code.splitlines()) > 30:
             return "ERROR: Too many lines for one python_repl call; split work across multiple calls."
 
         buf = io.StringIO()
@@ -212,30 +202,32 @@ def build_python_repl_tool(tracker: ToolUsageTracker):
             {
                 k: v
                 for k, v in env.items()
-                if k not in {"__builtins__", "math"} and k not in bindings and k not in tools_env
+                if k not in {"__builtins__", "math", "tool_names"} and k not in bindings and k not in tools_env
             }
         )
 
+        def _render(obj: Any) -> str:
+            try:
+                if isinstance(obj, dict):
+                    ks = list(obj.keys())
+                    return f"dict(keys={ks[:10]})"
+                if isinstance(obj, (list, tuple)):
+                    return f"{type(obj).__name__}(len={len(obj)})"
+                s = str(obj)
+                return s if len(s) <= 800 else "(ok)"
+            except Exception:
+                return "(ok)"
+
         stdout = buf.getvalue().strip()
         if result is not None:
-            # Keep large structures compact (esp. Prometheus API responses).
-            if isinstance(result, dict) and isinstance(result.get("data"), dict):
-                data = result.get("data")
-                if isinstance(data, dict) and isinstance(data.get("result"), list):
-                    rendered = f"Prometheus response: resultType={data.get('resultType')} (data.result is a list)"
-                else:
-                    rendered = "Prometheus response (ok)"
-            else:
-                rendered = str(result)
-                if len(rendered) > 800:
-                    rendered = "(ok)"
-
+            rendered = _render(result)
             if stdout:
                 return f"{rendered}\n{stdout}" if rendered != "(ok)" else stdout
             return rendered
         return stdout or "(ok)"
 
-    return python_repl
+    print(f"\nEmitting Python REPL TOOL with structure:\n{repl_instructions_and_tool_info}\n")
+    return dspy.Tool(python_repl, desc=repl_instructions_and_tool_info)
 
 
 def main() -> None:
@@ -247,17 +239,22 @@ def main() -> None:
 
     try:
         with dspy.context(lm=lm, callbacks=[callback]):
-            # Force the model to use python_repl (and call tools from within Python)
-            # so it can assign intermediate results to variables and iterate.
-            tools = [dspy.Tool(build_python_repl_tool(tracker))]
+            base_tools = [
+                dspy.Tool(prom_buildinfo),
+                dspy.Tool(prom_metrics),
+                dspy.Tool(prom_labels),
+                dspy.Tool(prom_label_values),
+                dspy.Tool(prom_query),
+                dspy.Tool(prom_range),
+            ]
+            tools = [build_python_repl_tool(tracker, base_tools)]
 
             agent = dspy.ReAct(signature="question -> answer", tools=tools, max_iters=12)  # type: ignore[arg-type]
 
             q = (
-                "List kube service info metrics for namespace argocd: return the service names (the `service` label) and the count. "
+                "List kube service info metrics for namespace argocd: return the service names (the `service` label) and the total count. "
                 "Use python_repl as a scratchpad: assign tool results to variables, peek to learn structure, then compute the count "
-                "from the returned data (show the python you ran). "
-                "You will likely need to call python_repl multiple times."
+                "from the returned data (show the python you ran)."
             )
             # q = "List 10 metric names containing 'argocd' and then run count(up)."
             print(f"\nQuestion:\n -> {q}\n")
