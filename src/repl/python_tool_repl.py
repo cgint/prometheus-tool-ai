@@ -135,7 +135,7 @@ Available functions (callable from Python):
         per_tool_counts: Dict[str, int] = {}
         for log in tracker.get_tool_logs():
             tool_name = str(log.get("tool_name", "tool"))
-            if tool_name in {"python_repl", "finish"}:
+            if tool_name in {"python_repl"}:
                 continue
 
             idx = per_tool_counts.get(tool_name, 0)
