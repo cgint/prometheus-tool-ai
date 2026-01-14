@@ -1,5 +1,6 @@
+import os
 import dspy
-
+from datetime import datetime
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
 from simplest_tool_logging import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
@@ -36,7 +37,14 @@ def main() -> None:
             print(f"\nQuestion:\n -> {q}\n")
             pred = agent(question=q)
             
-            tracker.print_summary()
+            print(f"\nQuestion:\n -> {q}\n")
+            pred = agent(question=q)
+            run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            os.makedirs("logs", exist_ok=True)
+            with open(f"logs/prom_agent_{run_id}.md", "w") as f:
+                f.write(tracker.get_summary())
+
+            tracker.print_summary(cutoff_input_output_length=100)
             
             print(f"\nAnswer:\n -> {pred.answer}\n")
 

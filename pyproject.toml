@@ -37,3 +37,4 @@ where = ["src"]
 
 [project.scripts]
 prom = "prom_agent:main"
+pypi = "pypi_agent:main"

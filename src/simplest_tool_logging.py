@@ -33,22 +33,30 @@ class ToolUsageTracker:
     def get_tool_logs(self) -> List[Dict[str, Any]]:
         """Get all tracked tool logs."""
         return self.tool_logs
+
+    def _coalesce_if_cutoff(self, value: str, cutoff_length: int | None = None) -> str:
+        if cutoff_length is None or len(value) <= cutoff_length:
+            return value
+        return value[:cutoff_length] + "..."
+
     
-    def print_summary(self) -> None:
-        """Print a summary of all tool calls."""
+    def get_summary(self, cutoff_input_output_length: int | None = None) -> str:
+        """Get a summary of all tool calls as a string."""
         if not self.tool_logs:
-            print("\n📊 No tool calls were tracked.")
-            return
+            return "No tool calls were tracked."
         
-        print("\n" + "="*60)
-        print("📊 Tool Usage Summary")
-        print("="*60)
+        summary = ""
         for i, log in enumerate(self.tool_logs, 1):
-            print(f"\n{i}. Tool: {log['tool_name']}")
-            print(f"   Inputs: {log['inputs']}")
-            print(f"   Output: {log['output']}")
-            print(f"   Status: {log['status']}")
-        print("="*60 + "\n")
+            summary += f"\n{i}. Tool: {log['tool_name']}\n"
+            summary += f"   Inputs: {self._coalesce_if_cutoff(str(log['inputs']), cutoff_input_output_length)}\n"
+            summary += f"   Output: {self._coalesce_if_cutoff(str(log['output']), cutoff_input_output_length)}\n"
+            summary += f"   Status: {log['status']}\n"
+        return summary
+    
+    def print_summary(self, cutoff_input_output_length: int | None = None) -> None:
+        """Print a summary of all tool calls."""
+        print(self.get_summary(cutoff_input_output_length))
+
 
 
 # DSPy-native callback handler for tool tracking
