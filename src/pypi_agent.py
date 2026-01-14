@@ -54,15 +54,6 @@ def pypi_json(package: str, timeout_s: float = 15.0, max_bytes: int = 2_000_000)
         return {"error": f"JSONDecodeError: {e}", "url": url, "raw_prefix": body[:2000]}
 
 
-def finish(answer: str) -> str:
-    """Return the final answer.
-
-    DSPy ReAct models sometimes attempt to call a `finish(answer=...)` tool. Providing
-    this explicitly avoids schema/arg mismatch errors during the final step.
-    """
-    return answer
-
-
 def main() -> None:
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
     dspy_configure(lm)
@@ -77,10 +68,8 @@ def main() -> None:
                 dspy.Tool(pypi_json),
             ]
 
-            # Expose python_repl to ReAct; python_repl can call http_get/pypi_json from Python.
             tools = [
-                build_python_repl_tool(tracker, base_tools, track_sub_tools=False),
-                dspy.Tool(finish),
+                build_python_repl_tool(tracker, base_tools, track_sub_tools=False)
             ]
 
             agent = dspy.ReAct(

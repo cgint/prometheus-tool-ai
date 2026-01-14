@@ -35,6 +35,7 @@ Key behaviors:
 - State persists across calls: assign to variables and reuse them later.
 - Single expression returns a value; multi-line code runs via exec, so print what you want to see.
 - Prefer a few multi-line steps per call (fetch + compact peeks), then follow up with additional calls.
+- Imports are allowed but restricted to a safe allowlist; if an import fails, use pre-injected helpers instead.
 
 Available functions (callable from Python):
 {tool_catalog}
@@ -48,6 +49,33 @@ Available functions (callable from Python):
         import io
         import math
         import sys
+        import traceback
+
+        allowed_imports = {
+            # Common "safe-ish" standard library helpers (no subprocess)
+            "collections",
+            "copy",
+            "csv",
+            "datetime",
+            "decimal",
+            "difflib",
+            "functools",
+            "itertools",
+            "json",
+            "math",
+            "pprint",
+            "re",
+            "statistics",
+            "string",
+            "textwrap",
+        }
+        _real_import = __import__
+
+        def _safe_import(name: str, globals_: Any = None, locals_: Any = None, fromlist: tuple = (), level: int = 0) -> Any:
+            base = name.split(".", 1)[0]
+            if base not in allowed_imports:
+                raise ImportError(f"Import '{name}' not allowed. Allowed: {sorted(allowed_imports)}")
+            return _real_import(name, globals_, locals_, fromlist, level)
 
         safe_builtins: Dict[str, Any] = {
             "abs": abs,
@@ -75,6 +103,7 @@ Available functions (callable from Python):
             "dir": dir,
             "hasattr": hasattr,
             "Counter": collections.Counter,
+            "__import__": _safe_import,
         }
 
         tools_by_name: Dict[str, dspy.Tool] = {}
@@ -128,13 +157,19 @@ Available functions (callable from Python):
             return "ERROR: Too many lines for one python_repl call; split work across multiple calls."
 
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
+        had_error = False
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             try:
-                compiled = compile(code, "<python_repl>", "eval")
-                result = eval(compiled, env, env)
-            except SyntaxError:
-                compiled = compile(code, "<python_repl>", "exec")
-                exec(compiled, env, env)
+                try:
+                    compiled = compile(code, "<python_repl>", "eval")
+                    result = eval(compiled, env, env)
+                except SyntaxError:
+                    compiled = compile(code, "<python_repl>", "exec")
+                    exec(compiled, env, env)
+                    result = None
+            except Exception:
+                had_error = True
+                traceback.print_exc()
                 result = None
 
         state.clear()
@@ -159,6 +194,8 @@ Available functions (callable from Python):
                 return "(ok)"
 
         stdout = buf.getvalue().strip()
+        if had_error:
+            return stdout or "ERROR: python_repl failed (no traceback captured)"
         if result is not None:
             rendered = _render(result)
             if stdout:
