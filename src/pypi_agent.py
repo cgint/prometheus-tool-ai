@@ -55,6 +55,20 @@ def pypi_json(package: str, timeout_s: float = 15.0, max_bytes: int = 2_000_000)
         return {"error": f"JSONDecodeError: {e}", "url": url, "raw_prefix": body[:2000]}
 
 
+class AgentSignature(dspy.Signature):
+    """
+    You are an AI agent with a persistent Python REPL.
+
+    POLICY:
+    - Use python_repl to compute results.
+    - Register ALL computed data (scalars, strings, tables) as named parts using `register_for_final_output(...)`.
+    - In your final answer, use placeholders like `{count}`, `{table}`.
+    - NEVER paste computed data directly; ONLY use placeholders.
+    """
+    question = dspy.InputField()
+    answer = dspy.OutputField()
+
+
 def main() -> None:
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
     dspy_configure(lm)
@@ -74,52 +88,19 @@ def main() -> None:
             ]
 
             agent = dspy.ReAct(
-                signature="question -> answer",  # type: ignore[arg-type]
+                signature=AgentSignature,
                 tools=tools,
                 max_iters=12,
             )
 
             q = """
-You are doing multi-step web metadata mining via the persistent python_repl scratchpad.
+Analyze PyPI metadata for these packages: ["httpx", "pydantic", "rich"].
 
-REPL constraints:
-- Imports are disabled in python_repl (so do not use `import ...`).
-- `Counter` is available as a builtin named `Counter` (no import needed).
-
-Goal:
-Build a small report for these packages: ["httpx", "pydantic", "rich"].
-
-Hard requirement (do not skip):
-- Use python_repl across MULTIPLE calls.
-- Store intermediate results in variables (e.g. pkgs, raw_by_pkg, classifiers_by_pkg).
-- Peek at the data structure first (print keys / small samples) before doing computations.
-- Reuse variables from earlier python_repl calls in later python_repl calls.
-- Show the python snippets you ran (prints are fine).
-- Use `register_for_final_output(...)` to register deterministic values (especially large strings) so they do NOT need to be
-  printed from the REPL or re-processed through the final answer context window.
-- In your FINAL python_repl call:
-  - Build the entire markdown report into a variable named `final_report` (this may be large).
-  - Also register small scalar summary values (e.g. `total_count`, etc.) as separate named variables.
-  - Call `register_for_final_output({"final_report": final_report, "total_count": total_count})` (you may print the return value
-    just to confirm registration happened).
-- In your final natural-language answer:
-  - Write a short natural-language summary, embedding placeholders like `{total_count}`.
-  - Then include the full report via the placeholder `{final_report}` (do NOT paste the full report directly).
-  - Example final answer format:
-    `Found **{total_count}** items.`
-    `---`
-    `{final_report}`
-
-What to compute (from PyPI JSON):
-1) For each package: latest version (info.version) and total number of release versions (len(releases)).
-2) For each package: total number of distribution files across all releases (sum(len(releases[v]))).
-3) Across ALL packages: top 8 most common trove classifier PREFIXES, where prefix is the first segment before " :: "
-   (use Counter; show the Counter output).
-4) Across ALL packages: which "Programming Language :: Python :: 3.x" classifiers appear, and which packages declare each.
-
-Output:
-- A short markdown table per package for (1)-(2)
-- Then bullet points for (3)-(4)
+Please compute and report:
+1) Latest version and total release count for each.
+2) Total distribution files across all releases for each.
+3) Top 8 most common trove classifier prefixes (first segment before " :: ").
+4) Which "Programming Language :: Python :: 3.x" classifiers appear, and which packages declare each.
 """
             print(f"\nQuestion:\n -> {q}\n")
             pred = agent(question=q)
@@ -139,15 +120,23 @@ Output:
                 f.write(history)
                 
             tracker.print_summary(cutoff_input_output_length=100)
+
+            # Render placeholders - AI decides placement
             final_vars = tracker.get_final_output_vars()
             final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
-            if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
-                # Fallback: if the model forgets to include the placeholder, append the report
-                # while preserving any natural-language summary it wrote.
-                report = str(final_vars["final_report"])
-                if report and report not in (final_answer or ""):
-                    final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + report
-            print(f"\nAnswer:\n -> {final_answer}\n")
+            with open(f"logs/pypi_agent_{run_id}_final_answer.md", "w") as f:
+                f.write(final_answer)
+
+            print(f"\n{'='*60}")
+            print("REGISTERED VARS:")
+            for k, v in final_vars.items():
+                preview = str(v)[:80] + "..." if len(str(v)) > 80 else str(v)
+                print(f"  {k}: {preview}")
+            print(f"{'='*60}")
+            print(f"RAW pred.answer:\n{pred.answer}")
+            print(f"{'='*60}")
+            print(f"RENDERED final_answer:\n{final_answer}")
+            print(f"{'='*60}\n")
     finally:
         callback.close()
 

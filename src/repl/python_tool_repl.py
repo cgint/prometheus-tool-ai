@@ -38,8 +38,20 @@ Key behaviors:
 - Each python_repl call is limited to 30 lines to encourage iterative peek→compute steps, avoid monolithic scripts,
   and bound worst-case runtime/output; split longer code into multiple calls.
 - Imports are allowed but restricted to a safe allowlist; if an import fails, use pre-injected helpers instead.
-- You may register values for the final answer via `register_for_final_output(...)`. In your FINAL natural-language answer,
-  you can use placeholders like `{{total_count}}` and they will be substituted after the agent finishes.
+
+Registering data for your final answer:
+- Call `register_for_final_output(name=value, ...)` to register computed values.
+- The names you use become placeholders: `register_for_final_output(item_count=42)` → use `{{item_count}}` in your answer.
+- Register ALL computed data: counts, totals, strings, tables, etc.
+
+Example:
+  # In python_repl: compute and register
+  n = len(items)
+  table = "| Name | Value |\\n| foo | 123 |"
+  register_for_final_output(item_count=n, results_table=table)
+
+  # In your final answer: use the placeholders
+  "I found **{{item_count}}** items.\\n\\n{{results_table}}"
 
 Available functions (callable from Python):
 {tool_catalog}

@@ -31,28 +31,33 @@ def main() -> None:
             q = (
                 "List kube service info metrics for namespace argocd: return the service names (the `service` label) and the total count. "
                 "Use python_repl as a scratchpad: assign tool results to variables, peek to learn structure, then compute the count "
-                "from the returned data (show the python you ran)."
+                "from the returned data (show the python you ran). "
+                "Register computed values (e.g. service_count, service_list) and use placeholders in your final answer."
             )
-            # q = "List 10 metric names containing 'argocd' and then run count(up)."
             print(f"\nQuestion:\n -> {q}\n")
             pred = agent(question=q)
-            
-            print(f"\nQuestion:\n -> {q}\n")
-            pred = agent(question=q)
+
             run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs("logs", exist_ok=True)
             with open(f"logs/prom_agent_{run_id}.md", "w") as f:
                 f.write(tracker.get_summary())
 
             tracker.print_summary(cutoff_input_output_length=100)
-            
+
+            # Render placeholders - AI decides placement
             final_vars = tracker.get_final_output_vars()
             final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
-            if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
-                report = str(final_vars["final_report"])
-                if report and report not in (final_answer or ""):
-                    final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + report
-            print(f"\nAnswer:\n -> {final_answer}\n")
+
+            print(f"\n{'='*60}")
+            print("REGISTERED VARS:")
+            for k, v in final_vars.items():
+                preview = str(v)[:80] + "..." if len(str(v)) > 80 else str(v)
+                print(f"  {k}: {preview}")
+            print(f"{'='*60}")
+            print(f"RAW pred.answer:\n{pred.answer}")
+            print(f"{'='*60}")
+            print(f"RENDERED final_answer:\n{final_answer}")
+            print(f"{'='*60}\n")
 
     finally:
         callback.close()
