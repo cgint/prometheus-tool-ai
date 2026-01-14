@@ -7,6 +7,7 @@ from typing import Any, Dict
 import dspy
 
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
+from dspy_utils import capture_dspy_inspect_history
 from repl.python_tool_repl import build_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
@@ -122,18 +123,30 @@ Output:
 """
             print(f"\nQuestion:\n -> {q}\n")
             pred = agent(question=q)
+            
             run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs("logs", exist_ok=True)
             with open(f"logs/pypi_agent_{run_id}.md", "w") as f:
                 f.write(tracker.get_summary())
-
+            # Try to get usage from the last prediction
+            usage = pred.get_lm_usage()
+            if usage:
+                usage_output = json.dumps(usage, indent=2) if usage else "No token usage metadata available"
+                with open(f"logs/pypi_agent_{run_id}_usage.json", "w") as f:
+                    f.write(usage_output)
+            history = capture_dspy_inspect_history()
+            with open(f"logs/pypi_agent_{run_id}_history.md", "w") as f:
+                f.write(history)
+                
             tracker.print_summary(cutoff_input_output_length=100)
             final_vars = tracker.get_final_output_vars()
             final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
             if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
                 # Fallback: if the model forgets to include the placeholder, append the report
                 # while preserving any natural-language summary it wrote.
-                final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + str(final_vars["final_report"])
+                report = str(final_vars["final_report"])
+                if report and report not in (final_answer or ""):
+                    final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + report
             print(f"\nAnswer:\n -> {final_answer}\n")
     finally:
         callback.close()

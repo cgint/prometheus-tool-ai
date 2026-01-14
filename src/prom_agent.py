@@ -49,7 +49,9 @@ def main() -> None:
             final_vars = tracker.get_final_output_vars()
             final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
             if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
-                final_answer = str(final_vars["final_report"])
+                report = str(final_vars["final_report"])
+                if report and report not in (final_answer or ""):
+                    final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + report
             print(f"\nAnswer:\n -> {final_answer}\n")
 
     finally:

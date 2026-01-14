@@ -36,5 +36,6 @@ where = ["src"]
 "" = "src"
 
 [project.scripts]
+fib = "fib_agent:main"
 prom = "prom_agent:main"
 pypi = "pypi_agent:main"
