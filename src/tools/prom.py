@@ -11,21 +11,18 @@ def _client() -> PromClient:
 
 
 def prom_buildinfo() -> Dict[str, Any]:
-    """Fetch Prometheus server build metadata (version/revision/buildDate/goVersion) via /api/v1/status/buildinfo.
+    """Retrieve Prometheus server version and build metadata. Use this to verify the server environment and capabilities.
 
-    Returns the raw Prometheus JSON response, typically:
-    {"status": "success", "data": {...}}.
+    Returns the raw Prometheus JSON response including version, revision, and build date.
     """
     return _client().buildinfo()
 
 
 def prom_metrics(match_regex: Optional[str] = None, limit: int = 50) -> List[str]:
-    """List metric names from prometheus
+    """List available metric names, filtered by an optional regex. Use this to discover what data is available for querying.
 
-    - match_regex: optional client-side regex filter applied to returned names.
-    - limit: max number of names to return (use <=0 for no limit).
-
-    Returns: List[str]
+    - match_regex: Optional regex to filter metric names (e.g., '.*http.*').
+    - limit: Max number of names to return (default 50, <=0 for unlimited).
     """
     metrics = _client().metric_names()
     if match_regex:
@@ -37,24 +34,20 @@ def prom_metrics(match_regex: Optional[str] = None, limit: int = 50) -> List[str
 
 
 def prom_labels(limit: int = 50) -> List[str]:
-    """List label names from /api/v1/labels.
+    """List all unique label names across all time series. Use this to understand available dimensions for filtering queries.
 
-    - limit: max number of label names to return (use <=0 for no limit).
-
-    Returns: List[str]
+    - limit: Max number of label names to return (default 50, <=0 for unlimited).
     """
     labels = _client().label_names()
     return labels[:limit] if limit > 0 else labels
 
 
 def prom_label_values(label: str, match_regex: Optional[str] = None, limit: int = 50) -> List[str]:
-    """List values for a label from /api/v1/label/<label>/values.
+    """List all unique values for a specific label name. Use this to find valid filter values for PromQL queries (e.g., job names, instance IDs).
 
-    - label: label name to query values for (e.g. "job", "namespace").
-    - match_regex: optional client-side regex filter applied to returned values.
-    - limit: max number of values to return (use <=0 for no limit).
-
-    Returns: List[str]
+    - label: The label name to fetch values for (e.g., 'job', 'instance').
+    - match_regex: Optional regex to filter the returned values.
+    - limit: Max number of values to return (default 50, <=0 for unlimited).
     """
     values = _client().label_values(label)
     if match_regex:
@@ -66,27 +59,22 @@ def prom_label_values(label: str, match_regex: Optional[str] = None, limit: int 
 
 
 def prom_query(promql: str, time: str = "now") -> Dict[str, Any]:
-    """Run an instant PromQL query via /api/v1/query.
+    """Execute an instant PromQL query at a single point in time. Use this for current status, alerts, or single-value aggregations.
 
-    - promql: PromQL expression.
-    - time: RFC3339 timestamp, "now", or a lookback like "1h".
-
-    Returns the raw Prometheus JSON response.
-    For vector results, rows are in resp["data"]["result"], with labels in row["metric"].
+    - promql: The PromQL expression to evaluate.
+    - time: Evaluation time (RFC3339, "now", or offset like "1h").
     """
     t = resolve_time(time, now=datetime.now(timezone.utc))
     return _client().query_instant(promql, time_rfc3339=t)
 
 
 def prom_range(promql: str, start: str, end: str = "now", step: str = "30s") -> Dict[str, Any]:
-    """Run a range PromQL query via /api/v1/query_range.
+    """Execute a PromQL query over a range of time. Use this to analyze trends, patterns, and historical data over a specified interval.
 
-    - promql: PromQL expression.
-    - start/end: RFC3339, "now", or lookback like "1h".
-    - step: duration like "30s", "1m", "1h".
-
-    Returns the raw Prometheus JSON response (matrix data in resp["data"]["result"]).
-    Guardrails apply (min step, max range, max points).
+    - promql: The PromQL expression to evaluate.
+    - start: Start of the time range (RFC3339, "now", or offset like "1h").
+    - end: End of the time range (default "now").
+    - step: Query resolution step (e.g., "15s", "1m", "5m").
     """
     now = datetime.now(timezone.utc)
     s = resolve_time(start, now=now)
