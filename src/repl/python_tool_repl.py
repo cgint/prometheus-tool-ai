@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 import dspy
 
 from simplest_tool_logging import ToolUsageTracker
+from utils import indent
 
 
 def build_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool], track_sub_tools: bool = False) -> dspy.Tool:
@@ -19,10 +20,10 @@ def build_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool]
     """
 
     def _format_tool_line(t: dspy.Tool) -> str:
-        name = t.name
-        args = t.args
-        desc = ((t.desc or "").strip().splitlines() or [""])[0].strip()
-        return f" ===== Function: '{name}' =====\n   Arguments: {args}\n   Description: {desc}\n"
+        line = f" ===== Function: '{t.name}' =====\n"
+        line += f"   Arguments: {t.args}\n"
+        line += f"{indent(t.desc, '   ')}\n"
+        return line
 
     tool_catalog = "\n".join(_format_tool_line(t) for t in sub_tools)
 

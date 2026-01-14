@@ -10,6 +10,10 @@ GOOGLE_PROVIDER_GEMINI = "gemini"
 GOOGLE_PROVIDER_VERTEX_AI = "vertex_ai"
 GOOGLE_PROVIDER_LIST = [GOOGLE_PROVIDER_GEMINI, GOOGLE_PROVIDER_VERTEX_AI]
 
+def indent(text: str, prefix: str = "  ") -> str:
+    """Indent each non-empty line in `text` with `prefix`."""
+    return "\n".join((prefix + line) if line.strip() else line for line in str(text).splitlines())
+
 def get_model_access_prefix_or_fail(model_name: str) -> str:
     """
     Whenever the model name already contains the access prefix then look up if the env variables are set and return the access prefix.

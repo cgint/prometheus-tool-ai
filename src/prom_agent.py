@@ -4,7 +4,7 @@ from constants import MODEL_NAME_GEMINI_2_5_FLASH
 from simplest_tool_logging import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 from tools.prom import prom_buildinfo, prom_metrics, prom_labels, prom_label_values, prom_query, prom_range
-from repl.python_tool import build_python_repl_tool
+from repl.python_tool_repl import build_python_repl_tool
 
 def main() -> None:
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
