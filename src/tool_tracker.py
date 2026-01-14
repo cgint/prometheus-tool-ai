@@ -36,7 +36,7 @@ class ToolUsageTracker:
         """Get all tracked tool logs."""
         return self.tool_logs
 
-    def register_final_output_vars(self, values: Mapping[str, Any]) -> None:
+    def register_final_output_vars(self, values: Mapping[str, str]) -> None:
         """Register values for late-binding into the final user-visible answer."""
         for k, v in values.items():
             if not isinstance(k, str):
