@@ -27,6 +27,8 @@ class ToolUsageTracker:
         self.tool_logs.append(log_entry)
         if self.debug:
             print(f"🔧 Tool '{tool_name}' called with inputs: {tool_args} -> output: {tool_output}")
+        else:
+            print(f"🔧 Tool '{tool_name}' called.")
     
     def get_tool_logs(self) -> List[Dict[str, Any]]:
         """Get all tracked tool logs."""
