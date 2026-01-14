@@ -8,7 +8,7 @@ import dspy
 
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
 from repl.python_tool_repl import build_python_repl_tool
-from simplest_tool_logging import ToolCallCallback, ToolUsageTracker
+from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 
 
@@ -94,6 +94,20 @@ Hard requirement (do not skip):
 - Peek at the data structure first (print keys / small samples) before doing computations.
 - Reuse variables from earlier python_repl calls in later python_repl calls.
 - Show the python snippets you ran (prints are fine).
+- Use `register_for_final_output(...)` to register deterministic values (especially large strings) so they do NOT need to be
+  printed from the REPL or re-processed through the final answer context window.
+- In your FINAL python_repl call:
+  - Build the entire markdown report into a variable named `final_report` (this may be large).
+  - Also register small scalar summary values (e.g. `total_count`, etc.) as separate named variables.
+  - Call `register_for_final_output({"final_report": final_report, "total_count": total_count})` (you may print the return value
+    just to confirm registration happened).
+- In your final natural-language answer:
+  - Write a short natural-language summary, embedding placeholders like `{total_count}`.
+  - Then include the full report via the placeholder `{final_report}` (do NOT paste the full report directly).
+  - Example final answer format:
+    `Found **{total_count}** items.`
+    `---`
+    `{final_report}`
 
 What to compute (from PyPI JSON):
 1) For each package: latest version (info.version) and total number of release versions (len(releases)).
@@ -114,7 +128,13 @@ Output:
                 f.write(tracker.get_summary())
 
             tracker.print_summary(cutoff_input_output_length=100)
-            print(f"\nAnswer:\n -> {pred.answer}\n")
+            final_vars = tracker.get_final_output_vars()
+            final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
+            if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
+                # Fallback: if the model forgets to include the placeholder, append the report
+                # while preserving any natural-language summary it wrote.
+                final_answer = (final_answer or "").rstrip() + "\n\n---\n\n" + str(final_vars["final_report"])
+            print(f"\nAnswer:\n -> {final_answer}\n")
     finally:
         callback.close()
 

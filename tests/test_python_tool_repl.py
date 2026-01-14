@@ -13,7 +13,7 @@ def _make_repl():
     sys.path.insert(0, str(repo_root / "src"))
 
     from repl.python_tool_repl import build_python_repl_tool
-    from simplest_tool_logging import ToolUsageTracker
+    from tool_tracker import ToolUsageTracker
 
     tracker = ToolUsageTracker(debug=False)
     tool = build_python_repl_tool(tracker=tracker, sub_tools=[], track_sub_tools=False)

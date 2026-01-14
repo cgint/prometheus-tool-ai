@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 
 import dspy
 
-from simplest_tool_logging import ToolUsageTracker
+from tool_tracker import ToolUsageTracker
 from utils import indent
 
 
@@ -36,6 +36,8 @@ Key behaviors:
 - Single expression returns a value; multi-line code runs via exec, so print what you want to see.
 - Prefer a few multi-line steps per call (fetch + compact peeks), then follow up with additional calls.
 - Imports are allowed but restricted to a safe allowlist; if an import fails, use pre-injected helpers instead.
+- You may register values for the final answer via `register_for_final_output(...)`. In your FINAL natural-language answer,
+  you can use placeholders like `{{total_count}}` and they will be substituted after the agent finishes.
 
 Available functions (callable from Python):
 {tool_catalog}
@@ -131,6 +133,44 @@ Available functions (callable from Python):
 
         tools_env: Dict[str, Any] = {name: _wrap_tool(t) if track_sub_tools else t.func for name, t in tools_by_name.items()}
 
+        def register_for_final_output(*args, **kwargs) -> str:
+            """Register named values for late-binding into the final answer.
+
+            Supported call styles:
+              - register_for_final_output({"total_count": 8})
+              - register_for_final_output(total_count=8)
+              - register_for_final_output([("total_count", 8), ("blob", big_str)])
+              - register_for_final_output([{"total_count": 8}, {"blob": big_str}])
+            """
+            values: Dict[str, Any] = {}
+
+            if len(args) == 1 and isinstance(args[0], dict):
+                values.update(args[0])
+            elif len(args) == 1 and isinstance(args[0], (list, tuple)):
+                for item in args[0]:
+                    if isinstance(item, dict):
+                        values.update(item)
+                    elif isinstance(item, (list, tuple)) and len(item) == 2:
+                        k, v = item
+                        values[str(k)] = v
+                    elif isinstance(item, set) and len(item) == 2:
+                        # Allow the common mistake: {"name", value} (a set, not a dict).
+                        # We only accept it if there's exactly one string element.
+                        key_candidates = [x for x in item if isinstance(x, str)]
+                        if len(key_candidates) != 1:
+                            raise TypeError("Set form must contain exactly one string key")
+                        k = key_candidates[0]
+                        v = next(x for x in item if x is not k)
+                        values[k] = v
+                    else:
+                        raise TypeError(f"Unsupported item in list: {type(item).__name__}")
+            elif len(args) != 0:
+                raise TypeError("register_for_final_output expects a dict, a list, or kwargs")
+
+            values.update(kwargs)
+            tracker.register_final_output_vars(values)
+            return f"registered: {sorted(values.keys())}"
+
         bindings: Dict[str, Any] = {}
         per_tool_counts: Dict[str, int] = {}
         for log in tracker.get_tool_logs():
@@ -148,6 +188,7 @@ Available functions (callable from Python):
             "__builtins__": safe_builtins,
             "math": math,
             "tool_names": tool_names,
+            "register_for_final_output": register_for_final_output,
         }
         env.update(tools_env)
         env.update(state)

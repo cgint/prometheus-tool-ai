@@ -1,6 +1,7 @@
 import dspy
 import logging
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Mapping
 from dspy.utils.callback import BaseCallback
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,9 @@ class ToolUsageTracker:
     def __init__(self, debug: bool = False):
         self.tool_logs: List[Dict[str, Any]] = []
         self.debug = debug
+        # Values registered from tools/REPL for late-binding into the final answer.
+        # This is intentionally separate from tool_logs so large payloads don't bloat logs.
+        self.final_output_vars: Dict[str, Any] = {}
     
     def log_tool_call(self, tool_name: str, tool_args: Dict[str, Any], tool_output: Any) -> None:
         """Log a tool call with its inputs and output."""
@@ -32,10 +36,54 @@ class ToolUsageTracker:
         """Get all tracked tool logs."""
         return self.tool_logs
 
+    def register_final_output_vars(self, values: Mapping[str, Any]) -> None:
+        """Register values for late-binding into the final user-visible answer."""
+        for k, v in values.items():
+            if not isinstance(k, str):
+                raise TypeError(f"final output var name must be str, got {type(k).__name__}")
+            self.final_output_vars[k] = v
+
+    def get_final_output_vars(self) -> Dict[str, Any]:
+        """Get a copy of final-output variables registered so far."""
+        return dict(self.final_output_vars)
+
     def _coalesce_if_cutoff(self, value: str, cutoff_length: int | None = None) -> str:
         if cutoff_length is None or len(value) <= cutoff_length:
             return value
         return value[:cutoff_length] + "..."
+
+    @staticmethod
+    def render_with_final_output_vars(template: str, values: Mapping[str, Any]) -> str:
+        """Replace `{name}` placeholders using registered final-output variables.
+
+        - Only simple identifier placeholders are supported: `{total_count}`
+        - `{{` and `}}` escape literal braces.
+        - Unknown placeholders are left unchanged.
+        """
+        if not template:
+            return template
+
+        # Support escaping like str.format.
+        l_sentinel = "\u0000LBRACE\u0000"
+        r_sentinel = "\u0000RBRACE\u0000"
+        text = template.replace("{{", l_sentinel).replace("}}", r_sentinel)
+
+        pattern = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+        def _to_str(v: Any) -> str:
+            try:
+                return v if isinstance(v, str) else str(v)
+            except Exception:
+                return "(unprintable)"
+
+        def _sub(m: re.Match[str]) -> str:
+            name = m.group(1)
+            if name not in values:
+                return m.group(0)
+            return _to_str(values[name])
+
+        text = pattern.sub(_sub, text)
+        return text.replace(l_sentinel, "{").replace(r_sentinel, "}")
 
     
     def get_summary(self, cutoff_input_output_length: int | None = None) -> str:

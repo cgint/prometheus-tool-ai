@@ -2,7 +2,7 @@ import os
 import dspy
 from datetime import datetime
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from simplest_tool_logging import ToolCallCallback, ToolUsageTracker
+from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 from tools.prom import prom_buildinfo, prom_metrics, prom_labels, prom_label_values, prom_query, prom_range
 from repl.python_tool_repl import build_python_repl_tool
@@ -46,7 +46,11 @@ def main() -> None:
 
             tracker.print_summary(cutoff_input_output_length=100)
             
-            print(f"\nAnswer:\n -> {pred.answer}\n")
+            final_vars = tracker.get_final_output_vars()
+            final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
+            if "final_report" in final_vars and "{final_report}" not in (pred.answer or ""):
+                final_answer = str(final_vars["final_report"])
+            print(f"\nAnswer:\n -> {final_answer}\n")
 
     finally:
         callback.close()
