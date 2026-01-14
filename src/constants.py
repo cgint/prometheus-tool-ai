@@ -15,3 +15,6 @@ OLLAMA_OPENAI_API_KEY = "ollama"
 
 # Default Ollama model tag
 OLLAMA_MODEL = "qwen3:4b"
+
+# --- Prometheus defaults ---
+PROM_URL = "https://prometheus.prod.data.platform.smec.services"

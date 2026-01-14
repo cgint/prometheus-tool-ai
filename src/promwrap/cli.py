@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import datetime, timezone
 from typing import Any, List
 
+from constants import PROM_URL
 from promwrap.client import PromClient, PromwrapConfig, PromwrapError, parse_step_seconds, resolve_time
 
 
@@ -23,9 +23,7 @@ def _filter_regex(values: List[str], pattern: str | None) -> List[str]:
 
 
 def _make_client(args: argparse.Namespace) -> PromClient:
-    url = args.url or os.getenv("PROM_URL")
-    if not url:
-        raise PromwrapError("CONFIG_ERROR", "Missing Prometheus URL (use --url or PROM_URL env var)")
+    url = args.url or PROM_URL
 
     cfg = PromwrapConfig(
         base_url=url,
@@ -50,7 +48,7 @@ def _make_client(args: argparse.Namespace) -> PromClient:
 
 def main(argv: List[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="promwrap", description="Minimal Prometheus HTTP API wrapper")
-    p.add_argument("--url", help="Prometheus base URL (or env PROM_URL)")
+    p.add_argument("--url", help="Prometheus base URL (defaults to PROM_URL constant)")
     p.add_argument("--timeout", default="10", help="HTTP timeout seconds")
     p.add_argument("--output", choices=["json", "table"], default="table")
 
