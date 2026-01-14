@@ -1,0 +1,39 @@
+[project]
+name = "dspy-intro"
+version = "0.1.0"
+requires-python = "==3.13.*"
+dependencies = [
+    "dspy",
+    "google-cloud-aiplatform",
+    # NOTE: TEMPORARY PIN SET (needs untangling later).
+    # Reason: newer transitive combinations of openai/litellm/google-genai/pydantic triggered
+    # `PydanticSerializationUnexpectedValue` serializer warnings (Message / StreamingChoices)
+    # when running `uv run simplesttoollogging`. These pins match the known-good environment.
+    "google-genai==1.52.0",
+    "litellm==1.80.5",
+    "openai==2.8.1",
+    "pydantic==2.12.4",
+]
+
+[dependency-groups]
+dev = [
+    "mypy",
+    "ruff",
+    "pytest",
+    "types-Markdown",
+    "types-protobuf",
+    "types-psutil"
+]
+
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[project.scripts]
+simplesttoollogging = "simplest_tool_logging:main"
