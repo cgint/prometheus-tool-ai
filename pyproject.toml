@@ -39,3 +39,4 @@ where = ["src"]
 fib = "fib_agent:main"
 prom = "prom_agent:main"
 pypi = "pypi_agent:main"
+log = "log_agent:main"

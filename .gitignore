@@ -4,6 +4,7 @@ lib/
 knowledge_graph*.jsonl
 knowledge_graph*.html
 logs/
+# examples/
 
 # Do not add ignores specific to your repository here.
 # Add them in a files named .extra_repo_ignores in your repository instead.
