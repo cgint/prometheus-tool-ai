@@ -66,100 +66,89 @@ def prom_range(promql: str, start: str, end: str = "now", step: str = "30s") -> 
     return _client().query_range(promql, start_rfc3339=s, end_rfc3339=e, step_seconds=step_seconds)
 
 
-_PY_REPL_STATE: Dict[str, Any] = {}
+def build_python_repl_tool(tracker: ToolUsageTracker):
+    """Build a python_repl tool with per-run state and access to prior tool outputs.
 
-# Set by main() so python_repl can access prior tool outputs.
-_TOOL_USAGE_TRACKER: ToolUsageTracker | None = None
+    Python available in `code` (read-only bindings from prior tool calls):
+    - `prom_query_0`, `prom_query_1`, ...: outputs of previous prom_query calls
+    - `<tool_name>_<n>`: outputs of other tools (0-based, per tool)
+    - `_`: output of the most recent non-python tool call
 
+    Prefer using these bindings (e.g. `len(prom_query_0['data']['result'])`) instead of
+    inlining large payloads.
 
-def _tool_call_bindings() -> Dict[str, Any]:
-    """Expose prior tool outputs to python_repl.
-
-    Provides:
-    - `<tool_name>_<n>`: output of the n-th call of that tool (0-based, per tool)
-    - `_`: output of the most recent tool call (any tool)
+    State is preserved across python_repl calls within a single agent run.
     """
 
-    if _TOOL_USAGE_TRACKER is None:
-        return {}
+    state: Dict[str, Any] = {}
 
-    bindings: Dict[str, Any] = {}
-    per_tool_counts: Dict[str, int] = {}
+    def python_repl(code: str) -> str:
+        """Evaluate simple Python for calculations.
 
-    for log in _TOOL_USAGE_TRACKER.get_tool_logs():
-        tool_name = str(log.get("tool_name", "tool"))
-        idx = per_tool_counts.get(tool_name, 0)
-        per_tool_counts[tool_name] = idx + 1
+        Tip: Use prior tool outputs via `prom_query_0` / `_`.
+        """
 
-        out = log.get("output")
-        bindings[f"{tool_name}_{idx}"] = out
-        bindings["_"] = out
+        import contextlib
+        import io
+        import math
 
-    return bindings
+        safe_builtins: Dict[str, Any] = {
+            "abs": abs,
+            "min": min,
+            "max": max,
+            "sum": sum,
+            "len": len,
+            "round": round,
+            "range": range,
+            "float": float,
+            "int": int,
+            "str": str,
+            "bool": bool,
+            "list": list,
+            "dict": dict,
+            "set": set,
+            "tuple": tuple,
+            "pow": pow,
+        }
 
+        bindings: Dict[str, Any] = {}
+        per_tool_counts: Dict[str, int] = {}
+        for log in tracker.get_tool_logs():
+            tool_name = str(log.get("tool_name", "tool"))
+            if tool_name in {"python_repl", "finish"}:
+                continue
 
-def python_repl(code: str) -> str:
-    """Evaluate simple Python for calculations.
+            idx = per_tool_counts.get(tool_name, 0)
+            per_tool_counts[tool_name] = idx + 1
+            out = log.get("output")
+            bindings[f"{tool_name}_{idx}"] = out
+            bindings["_"] = out
 
-    State is preserved across calls (variables stored in a shared dict).
+        env: Dict[str, Any] = {"__builtins__": safe_builtins, "math": math}
+        env.update(state)
+        env.update(bindings)
 
-    Additionally, outputs from previous tool calls are available:
-    - `prom_query_0`, `prom_query_1`, ...
-    - `_` for the most recent tool output
-    """
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            try:
+                compiled = compile(code, "<python_repl>", "eval")
+                result = eval(compiled, env, env)
+            except SyntaxError:
+                compiled = compile(code, "<python_repl>", "exec")
+                exec(compiled, env, env)
+                result = None
 
-    import contextlib
-    import io
-    import math
+        state.clear()
+        state.update({k: v for k, v in env.items() if k not in {"__builtins__", "math"} and k not in bindings})
 
-    safe_builtins: Dict[str, Any] = {
-        "abs": abs,
-        "min": min,
-        "max": max,
-        "sum": sum,
-        "len": len,
-        "round": round,
-        "range": range,
-        "float": float,
-        "int": int,
-        "str": str,
-        "bool": bool,
-        "list": list,
-        "dict": dict,
-        "set": set,
-        "tuple": tuple,
-        "pow": pow,
-    }
+        stdout = buf.getvalue().strip()
+        if result is not None and stdout:
+            return f"{result}\n{stdout}"
+        if result is not None:
+            return str(result)
+        return stdout or "(ok)"
 
-    env: Dict[str, Any] = {"__builtins__": safe_builtins, "math": math}
-    env.update(_PY_REPL_STATE)
-
-    tool_bindings = _tool_call_bindings()
-    env.update(tool_bindings)
-
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        try:
-            compiled = compile(code, "<python_repl>", "eval")
-            result = eval(compiled, env, env)
-        except SyntaxError:
-            compiled = compile(code, "<python_repl>", "exec")
-            exec(compiled, env, env)
-            result = None
-
-    _PY_REPL_STATE.clear()
-    _PY_REPL_STATE.update({
-        k: v
-        for k, v in env.items()
-        if k not in {"__builtins__", "math"} and k not in tool_bindings
-    })
-
-    stdout = buf.getvalue().strip()
-    if result is not None and stdout:
-        return f"{result}\n{stdout}"
-    if result is not None:
-        return str(result)
-    return stdout or "(ok)"
+    return python_repl
 
 
 def main() -> None:
@@ -168,9 +157,6 @@ def main() -> None:
 
     tracker = ToolUsageTracker()
     callback = ToolCallCallback(tracker)
-
-    global _TOOL_USAGE_TRACKER
-    _TOOL_USAGE_TRACKER = tracker
 
     try:
         with dspy.context(lm=lm, callbacks=[callback]):
@@ -181,7 +167,7 @@ def main() -> None:
                 dspy.Tool(prom_label_values),
                 dspy.Tool(prom_query),
                 dspy.Tool(prom_range),
-                dspy.Tool(python_repl),
+                dspy.Tool(build_python_repl_tool(tracker)),
             ]
 
             agent = dspy.ReAct(signature="question -> answer", tools=tools, max_iters=12)  # type: ignore[arg-type]
