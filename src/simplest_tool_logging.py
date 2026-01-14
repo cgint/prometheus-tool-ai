@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 class ToolUsageTracker:
     """Tracks tool calls with inputs and outputs."""
     
-    def __init__(self):
+    def __init__(self, debug: bool = False):
         self.tool_logs: List[Dict[str, Any]] = []
+        self.debug = debug
     
     def log_tool_call(self, tool_name: str, tool_args: Dict[str, Any], tool_output: Any) -> None:
         """Log a tool call with its inputs and output."""
@@ -24,7 +25,8 @@ class ToolUsageTracker:
             "status": "completed"
         }
         self.tool_logs.append(log_entry)
-        print(f"🔧 Tool '{tool_name}' called with inputs: {tool_args} -> output: {tool_output}")
+        if self.debug:
+            print(f"🔧 Tool '{tool_name}' called with inputs: {tool_args} -> output: {tool_output}")
     
     def get_tool_logs(self) -> List[Dict[str, Any]]:
         """Get all tracked tool logs."""

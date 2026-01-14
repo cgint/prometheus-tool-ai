@@ -102,3 +102,35 @@ promtool query instant "https://prometheus.prod.data.platform.smec.services" 'co
 ## Notes / Next probes
 - If any endpoint returns 401/403, we need to add auth (cookie/header) for both curl and promtool.
 - Next useful API calls: https://prometheus.prod.data.platform.smec.services/api/v1/targets , https://prometheus.prod.data.platform.smec.services/api/v1/rules .
+
+---
+
+## promwrap CLI smoke test
+Date: 2026-01-14
+
+Commands executed (via `uv run`):
+- `promwrap --url "$PROM_URL" ping` → `ok`
+- `promwrap --url "$PROM_URL" buildinfo --output json` → success (Prometheus `2.44.0`)
+- `promwrap --url "$PROM_URL" query 'count(up)' --output json` → success (returned `73`)
+- `promwrap --url "$PROM_URL" metrics --match 'argocd' --limit 10` → returned 10 metric names
+
+CLI UX finding:
+- Fixed argument parsing so “global” flags like `--output/--url` work **both before and after** the subcommand (e.g. `promwrap ping --url ... --output json`).
+
+---
+
+## promwrap DSPy tool logging smoke test (`promwraptoollogging`)
+Date: 2026-01-14
+
+Run:
+- `PROM_URL="$PROM_URL" uv run promwraptoollogging`
+
+Observed behavior:
+- DSPy selected model access prefix: `vertex_ai`.
+- Tool calls executed successfully and were logged by `ToolCallCallback`:
+  - `prom_metrics(match_regex="argocd", limit=10)` → returned 10 metric names (`argocd_*`).
+  - `prom_query(promql="count(up)")` → success; returned value `77`.
+- Process exited with code `0`.
+
+Note:
+- The `count(up)` value differs from the earlier `promwrap` CLI run because it is sampled at a different point in time.

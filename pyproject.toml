@@ -37,3 +37,5 @@ where = ["src"]
 
 [project.scripts]
 simplesttoollogging = "simplest_tool_logging:main"
+promwrap = "promwrap.cli:main"
+promwraptoollogging = "promwrap_tool_logging:main"
