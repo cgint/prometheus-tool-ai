@@ -1,13 +1,11 @@
 import json
-import os
 import urllib.request
-from datetime import datetime
 from typing import Any, Dict
 
 import dspy
 
+from agent_logging import AgentLogConfig, write_agent_logs
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from dspy_utils import capture_dspy_inspect_history
 from repl.python_tool_repl import build_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
@@ -105,38 +103,19 @@ Please compute and report:
             print(f"\nQuestion:\n -> {q}\n")
             pred = agent(question=q)
             
-            run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-            os.makedirs("logs", exist_ok=True)
-            with open(f"logs/pypi_agent_{run_id}.md", "w") as f:
-                f.write(tracker.get_summary())
-            # Try to get usage from the last prediction
-            usage = pred.get_lm_usage()
-            if usage:
-                usage_output = json.dumps(usage, indent=2) if usage else "No token usage metadata available"
-                with open(f"logs/pypi_agent_{run_id}_usage.json", "w") as f:
-                    f.write(usage_output)
-            history = capture_dspy_inspect_history()
-            with open(f"logs/pypi_agent_{run_id}_history.md", "w") as f:
-                f.write(history)
-                
-            tracker.print_summary(cutoff_input_output_length=100)
-
-            # Render placeholders - AI decides placement
-            final_vars = tracker.get_final_output_vars()
-            final_answer = tracker.render_with_final_output_vars(pred.answer, final_vars)
-            with open(f"logs/pypi_agent_{run_id}_final_answer.md", "w") as f:
-                f.write(final_answer)
-
-            print(f"\n{'='*60}")
-            print("REGISTERED VARS:")
-            for k, v in final_vars.items():
-                preview = str(v)[:80] + "..." if len(str(v)) > 80 else str(v)
-                print(f"  {k}: {preview}")
-            print(f"{'='*60}")
-            print(f"RAW pred.answer:\n{pred.answer}")
-            print(f"{'='*60}")
-            print(f"RENDERED final_answer:\n{final_answer}")
-            print(f"{'='*60}\n")
+            write_agent_logs(
+                agent_name="pypi_agent",
+                tracker=tracker,
+                prediction=pred,
+                config=AgentLogConfig(
+                    write_summary=True,
+                    write_usage=True,
+                    write_history=True,
+                    write_final_answer=True,
+                    print_registered_vars=True,
+                    print_raw_answer=True,
+                ),
+            )
     finally:
         callback.close()
 
