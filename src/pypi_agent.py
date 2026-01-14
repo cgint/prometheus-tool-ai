@@ -12,8 +12,15 @@ from simplest_tool_logging import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 
 
-def http_get(url: str, timeout_s: float = 15.0, max_bytes: int = 250_000) -> str:
-    """Fetch a URL and return text (truncated)."""
+def http_get(
+    url: str,
+    timeout_s: float = 15.0,
+    max_bytes: int = 250_000,
+    *,
+    allow_truncate: bool = True,
+    add_truncation_marker: bool = True,
+) -> str:
+    """Fetch a URL and return text (optionally truncated)."""
     req = urllib.request.Request(
         url,
         headers={
@@ -25,18 +32,35 @@ def http_get(url: str, timeout_s: float = 15.0, max_bytes: int = 250_000) -> str
         data = resp.read(max_bytes + 1)
 
     truncated = len(data) > max_bytes
+    if truncated and not allow_truncate:
+        raise ValueError(f"Response exceeded max_bytes={max_bytes}; increase max_bytes for {url}")
+
     text = data[:max_bytes].decode("utf-8", errors="replace")
-    return text + ("\n\n[TRUNCATED]" if truncated else "")
+    if truncated and add_truncation_marker:
+        text += "\n\n[TRUNCATED]"
+    return text
 
 
-def pypi_json(package: str) -> Dict[str, Any]:
+def pypi_json(package: str, timeout_s: float = 15.0, max_bytes: int = 2_000_000) -> Dict[str, Any]:
     """Fetch PyPI JSON metadata for a package."""
     url = f"https://pypi.org/pypi/{package}/json"
-    body = http_get(url)
+    try:
+        body = http_get(url, timeout_s=timeout_s, max_bytes=max_bytes, allow_truncate=False, add_truncation_marker=False)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}", "url": url}
     try:
         return json.loads(body)
     except json.JSONDecodeError as e:
         return {"error": f"JSONDecodeError: {e}", "url": url, "raw_prefix": body[:2000]}
+
+
+def finish(answer: str) -> str:
+    """Return the final answer.
+
+    DSPy ReAct models sometimes attempt to call a `finish(answer=...)` tool. Providing
+    this explicitly avoids schema/arg mismatch errors during the final step.
+    """
+    return answer
 
 
 def main() -> None:
@@ -53,8 +77,11 @@ def main() -> None:
                 dspy.Tool(pypi_json),
             ]
 
-            # Expose ONLY python_repl to ReAct; python_repl can call http_get/pypi_json from Python.
-            tools = [build_python_repl_tool(tracker, base_tools, track_sub_tools=False)]
+            # Expose python_repl to ReAct; python_repl can call http_get/pypi_json from Python.
+            tools = [
+                build_python_repl_tool(tracker, base_tools, track_sub_tools=False),
+                dspy.Tool(finish),
+            ]
 
             agent = dspy.ReAct(
                 signature="question -> answer",  # type: ignore[arg-type]
@@ -64,6 +91,10 @@ def main() -> None:
 
             q = """
 You are doing multi-step web metadata mining via the persistent python_repl scratchpad.
+
+REPL constraints:
+- Imports are disabled in python_repl (so do not use `import ...`).
+- `Counter` is available as a builtin named `Counter` (no import needed).
 
 Goal:
 Build a small report for these packages: ["httpx", "pydantic", "rich"].
