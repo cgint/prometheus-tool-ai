@@ -22,7 +22,7 @@ def build_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool]
     def _format_tool_line(t: dspy.Tool) -> str:
         line = f" ===== Function: '{t.name}' =====\n"
         line += f"   Arguments: {t.args}\n"
-        line += f"{indent(t.desc, '   ')}\n"
+        line += f"{indent(t.desc or '', '   ')}\n"
         return line
 
     tool_catalog = "\n".join(_format_tool_line(t) for t in sub_tools)
