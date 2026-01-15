@@ -5,7 +5,7 @@ from typing import Any, List, Literal, Optional
 import dspy
 
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from examples.dspy_optimize.log_agent_placeholders_examples import (
+from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,
 )
