@@ -57,6 +57,7 @@ playwright-report/
 .claude/
 
 *.log
+!src/optimize_agent/sample_logs/*.log
 *.tar.gz
 *.gz
 *.zip
