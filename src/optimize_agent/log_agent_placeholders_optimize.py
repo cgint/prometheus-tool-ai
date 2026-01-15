@@ -106,7 +106,7 @@ def optimize_log_agent(
         from dspy.teleprompt.gepa.gepa import GEPAFeedbackMetric
         from dspy.teleprompt.gepa.gepa_utils import ScoreWithFeedback
 
-        class PlaceholderFeedbackMetric(GEPAFeedbackMetric):
+        class PlaceholderFeedbackMetric(GEPAFeedbackMetric):  # type: ignore[call-arg]
             def __call__(
                 self,
                 gold: dspy.Example,
