@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, List, Literal, Optional
 
+import logging
+
 import dspy
 
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
@@ -9,10 +11,12 @@ from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,
 )
-from log_agent import AgentSignature, fetch_log_data
+from log_agent import AgentSignature, fetch_log_data, get_available_files
 from repl.python_tool_repl import build_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
+
+logger = logging.getLogger(__name__)
 
 
 class LogAgentModule(dspy.Module):
@@ -28,7 +32,7 @@ class LogAgentModule(dspy.Module):
                 tools = [
                     build_python_repl_tool(
                         tracker,
-                        sub_tools=[dspy.Tool(fetch_log_data)],
+                        sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
                         track_sub_tools=False,
                     )
                 ]
@@ -48,17 +52,31 @@ class LogAgentModule(dspy.Module):
 
 
 def placeholder_metric(example: dspy.Example, pred: dspy.Prediction, trace: Any = None) -> float:
+    example_id: str = getattr(example, "id", "unknown")
     expected_vars: List[str] = getattr(example, "expected_vars", [])
-    if not expected_vars:
-        return 1.0
+    expected_count = len(expected_vars) if expected_vars else 0
 
-    registered = set(getattr(pred, "registered_var_names", []))
-    expected = set(expected_vars)
+    registered_vars = list(getattr(pred, "registered_var_names", []))
+    registered_count = len(registered_vars) if registered_vars else 0
 
-    registered_score = len(expected & registered) / len(expected)
-    placeholder_score = sum(1 for var in expected_vars if f"{{{var}}}" in pred.answer) / len(expected_vars)
+    count_diff = abs(registered_count - expected_count)
+    count_score = max(0.0, 1.0 - 0.5 * count_diff)
+    used_placeholder_count: int | None = None
+    if registered_vars:
+        used_placeholder_count = sum(
+            1 for var in registered_vars if f"{{{var}}}" in pred.answer
+        )
+        placeholder_in_answer_score = used_placeholder_count / registered_count
+    else:
+        placeholder_in_answer_score = 1.0
 
-    return (registered_score + placeholder_score) / 2.0
+    final_score = (count_score + placeholder_in_answer_score) / 2.0
+    print(
+        f"test_id={example_id} placeholder_metric final_score={final_score} expected_count={expected_count} "
+        f"registered_count={registered_count} used_placeholder_count={used_placeholder_count} "
+        f"count_score={count_score} placeholder_in_answer_score={placeholder_in_answer_score}"
+    )
+    return final_score
 
 
 def to_percent_int(score: float) -> int:
