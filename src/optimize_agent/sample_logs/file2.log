@@ -1,0 +1,4 @@
+INFO scheduled job daily_cleanup
+WARN slow response from dependency
+INFO scheduled job daily_cleanup finished
+INFO heartbeat ok

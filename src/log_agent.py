@@ -69,7 +69,7 @@ def main() -> None:
 
             q = (
                 "Read these local log files: "
-                '["logs/sample_logs/file1.log", "logs/sample_logs/file2.log", "logs/sample_logs/file3.log"].\n'
+                '["src/optimize_agent/sample_logs/file1.log", "src/optimize_agent/sample_logs/file2.log", "src/optimize_agent/sample_logs/file3.log"].\n'
                 'For each file, compute how many lines contain the substring "ERROR". '
                 "Also compute the total across all files.\n"
                 "Return a short explanation plus the per-file counts and the total."

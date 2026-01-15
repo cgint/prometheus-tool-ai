@@ -1,0 +1,6 @@
+INFO starting service
+INFO connected to db
+ERROR failed to authenticate user alice
+INFO retrying
+ERROR failed to authenticate user bob
+INFO recovered
