@@ -28,18 +28,42 @@ def fetch_log_data(path: str, *, max_bytes: int = 200_000) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def get_available_files() -> list[str]:
+    """Return the available sample log file paths (repo-relative)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    sample_dir = (repo_root / "src" / "optimize_agent" / "sample_logs").resolve()
+    if repo_root not in sample_dir.parents and sample_dir != repo_root:
+        raise ValueError("Sample log directory must be within repo root.")
+    if not sample_dir.is_dir():
+        raise FileNotFoundError(str(sample_dir))
+
+    files = sorted(p.name for p in sample_dir.glob("*.log") if p.is_file())
+    return [f"src/optimize_agent/sample_logs/{name}" for name in files]
+
+
 class AgentSignature(dspy.Signature):
     """
     You are an AI agent with a persistent Python REPL.
 
     POLICY:
-    - Use python_repl to compute results.
-    - Register ALL computed data as named parts using `register_for_final_output(...)`.
-    - Final-output variables MUST be STRINGS (display-ready snippets). Convert scalars with `str(...)`.
-      For structured data (lists/dicts), format it into the exact text you want to appear in the final answer,
-      then register that string (e.g. `per_file_counts_text`, `total_error_lines_str`, `matching_lines_excerpt`).
-    - In your final answer, use placeholders like `{per_file_counts_text}`, `{total_error_lines_str}`.
+    - Use python_repl to compute results instead of processing or calculating yourself.
+    - Register ALL computed data as named parts using `register_for_final_output(item_count=str(len(items)))`.
+    - Final-output variable values MUST be STRINGS (display-ready snippets). Convert scalars with `str(...)`.
+      For structured data (lists/dicts), format it into the exact text you want to appear in the final answer, then register that string.
+    - In your final answer, use placeholders like `Number of items: {item_count}`.
     - NEVER paste computed data directly in your final answer; ONLY use placeholders.
+    - NEVER paste computed data directly in your final answer; ONLY use placeholders.
+    - NEVER paste computed data directly in your final answer; ONLY use placeholders.
+    - NEVER paste computed data directly in your final answer; ONLY use placeholders.
+
+    EXAMPLE:
+    # In python_repl: compute and register
+    n_str = str(len(items))
+    items_bullets = "\n".join("- " + str(item) for item in items)
+    register_for_final_output(item_count=n_str, items_list=items_bullets)
+
+    # In your final answer: use the placeholders
+    "I found **{item_count}** items:\n\n{items_list}"
     """
 
     question = dspy.InputField()
@@ -57,6 +81,7 @@ def main() -> None:
         with dspy.context(lm=lm, callbacks=[callback]):
             base_tools = [
                 dspy.Tool(fetch_log_data),
+                dspy.Tool(get_available_files),
             ]
 
             tools = [build_python_repl_tool(tracker, base_tools, track_sub_tools=False)]
@@ -96,4 +121,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
