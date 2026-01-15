@@ -39,8 +39,7 @@ class AgentSignature(dspy.Signature):
       For structured data (lists/dicts), format it into the exact text you want to appear in the final answer,
       then register that string (e.g. `per_file_counts_text`, `total_error_lines_str`, `matching_lines_excerpt`).
     - In your final answer, use placeholders like `{per_file_counts_text}`, `{total_error_lines_str}`.
-    - NEVER paste computed data directly; ONLY use placeholders.
-    - Do NOT call any tool named "finish". Just produce the final answer text.
+    - NEVER paste computed data directly in your final answer; ONLY use placeholders.
     """
 
     question = dspy.InputField()
