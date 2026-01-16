@@ -69,54 +69,69 @@ class AgentSignature(dspy.Signature):
     question = dspy.InputField()
     answer = dspy.OutputField()
 
+class LogAgentModule(dspy.Module):
+    def __init__(self):
+        super().__init__()
+        self.tracker = ToolUsageTracker()
+        self.callback = ToolCallCallback(self.tracker)
+        self.tools = [
+            build_python_repl_tool(
+                self.tracker,
+                sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
+                track_sub_tools=False,
+            )
+        ]
+        self.agent = dspy.ReAct(
+            signature=AgentSignature,
+            tools=self.tools,
+            max_iters=10,
+        )
+
+    def get_tracker(self) -> ToolUsageTracker:
+        return self.tracker
+
+    def forward(self, question: str) -> dspy.Prediction:
+        try:
+            with dspy.context(callbacks=[self.callback]):
+                pred = self.agent(question=question)
+        finally:
+            self.callback.close()
+
+        registered_vars = self.tracker.get_final_output_vars()
+        pred.registered_vars = registered_vars
+        pred.registered_var_names = sorted(registered_vars.keys())
+        return pred
 
 def main() -> None:
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
     dspy_configure(lm)
-
-    tracker = ToolUsageTracker()
-    callback = ToolCallCallback(tracker)
-
     try:
-        with dspy.context(lm=lm, callbacks=[callback]):
-            base_tools = [
-                dspy.Tool(fetch_log_data),
-                dspy.Tool(get_available_files),
-            ]
+        q = (
+            "Read these local log files: "
+            '["src/optimize_agent/sample_logs/file1.log", "src/optimize_agent/sample_logs/file2.log", "src/optimize_agent/sample_logs/file3.log"].\n'
+            'For each file, compute how many lines contain the substring "ERROR". '
+            "Also compute the total across all files.\n"
+            "Return a short explanation plus the per-file counts and the total."
+        )
+        print(f"\nQuestion:\n -> {q}\n")
+        agent = LogAgentModule()
+        pred = agent(question=q)
 
-            tools = [build_python_repl_tool(tracker, base_tools, track_sub_tools=False)]
-
-            agent = dspy.ReAct(
-                signature=AgentSignature,
-                tools=tools,
-                max_iters=10,
-            )
-
-            q = (
-                "Read these local log files: "
-                '["src/optimize_agent/sample_logs/file1.log", "src/optimize_agent/sample_logs/file2.log", "src/optimize_agent/sample_logs/file3.log"].\n'
-                'For each file, compute how many lines contain the substring "ERROR". '
-                "Also compute the total across all files.\n"
-                "Return a short explanation plus the per-file counts and the total."
-            )
-            print(f"\nQuestion:\n -> {q}\n")
-            pred = agent(question=q)
-
-            write_agent_logs(
-                agent_name="log_agent",
-                tracker=tracker,
-                prediction=pred,
-                config=AgentLogConfig(
-                    write_summary=True,
-                    write_usage=True,
-                    write_history=True,
-                    write_final_answer=True,
-                    print_registered_vars=True,
-                    print_raw_answer=True,
-                ),
-            )
+        write_agent_logs(
+            agent_name="log_agent",
+            tracker=agent.tracker,
+            prediction=pred,
+            config=AgentLogConfig(
+                write_summary=True,
+                write_usage=True,
+                write_history=True,
+                write_final_answer=True,
+                print_registered_vars=True,
+                print_raw_answer=True,
+            ),
+        )
     finally:
-        callback.close()
+        agent.callback.close()
 
 
 if __name__ == "__main__":

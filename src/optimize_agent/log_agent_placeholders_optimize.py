@@ -11,44 +11,10 @@ from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,
 )
-from log_agent import AgentSignature, fetch_log_data, get_available_files
-from repl.python_tool_repl import build_python_repl_tool
-from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
+from log_agent import LogAgentModule
 
 logger = logging.getLogger(__name__)
-
-
-class LogAgentModule(dspy.Module):
-    def __init__(self, lm: dspy.LM):
-        super().__init__()
-        self.lm = lm
-        self.tracker = ToolUsageTracker()
-        self.callback = ToolCallCallback(self.tracker)
-        self.tools = [
-            build_python_repl_tool(
-                self.tracker,
-                sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
-                track_sub_tools=False,
-            )
-        ]
-        self.agent = dspy.ReAct(
-            signature=AgentSignature,
-            tools=self.tools,
-            max_iters=10,
-        )
-
-    def forward(self, question: str) -> dspy.Prediction:
-        try:
-            with dspy.context(lm=self.lm, callbacks=[self.callback]):
-                pred = self.agent(question=question)
-        finally:
-            self.callback.close()
-
-        registered_vars = self.tracker.get_final_output_vars()
-        pred.registered_vars = registered_vars
-        pred.registered_var_names = sorted(registered_vars.keys())
-        return pred
 
 
 def placeholder_metric(example: dspy.Example, pred: dspy.Prediction, trace: Any = None) -> float:
@@ -104,13 +70,14 @@ def optimize_log_agent(
         random.shuffle(trainset)
         random.shuffle(testset)
 
-    baseline_module = LogAgentModule(lm=lm)
+    baseline_module = LogAgentModule()
     baseline_score = dspy.Evaluate(
         devset=testset,
         metric=placeholder_metric,
         num_threads=num_threads,
         display_progress=True,
     )(baseline_module)
+    print(f"Baseline score:  {to_percent_int(baseline_score.score)}%")
 
     if optimizer_type == "MIPROv2":
         optimizer = dspy.MIPROv2(
@@ -156,11 +123,9 @@ def optimize_log_agent(
             reflection_minibatch_size=reflection_minibatch_size,
             reflection_lm=lm,
         )
-    else:
-        raise ValueError(f"Unsupported optimizer_type: {optimizer_type}")
 
     optimized_module = optimizer.compile(
-        LogAgentModule(lm=lm),
+        LogAgentModule(),
         trainset=trainset,
         valset=testset,
     )
@@ -179,13 +144,13 @@ def optimize_log_agent(
 
 def main() -> None:
     optimize_log_agent(
-        optimizer_type="GEPA",
+        optimizer_type="MIPROv2",
         auto="light",
         limit_trainset=20,
         limit_testset=8,
         randomize_sets=False,
         reflection_minibatch_size=8,
-        num_threads=1, # REPL concurrent possible ?
+        num_threads=2, # REPL concurrent possible ?
     )
 
 
