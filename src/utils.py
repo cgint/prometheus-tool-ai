@@ -23,7 +23,7 @@ def get_model_access_prefix_or_fail(model_name: str) -> str:
     Returns e.g. "" or "gemini/" or "vertex_ai/"
     """
     provider_from_model_name: str | None = model_name.split("/")[0] if "/" in model_name else None
-    if provider_from_model_name is not None and provider_from_model_name not in GOOGLE_PROVIDER_LIST:
+    if provider_from_model_name is not None and provider_from_model_name in GOOGLE_PROVIDER_LIST:
         return "" # In this case the model name already contains the provider and it is one we use as is
 
     # Collect state: what credentials are available
