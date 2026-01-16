@@ -702,9 +702,10 @@ def main(argv: Optional[list[str]] = None) -> None:
         ]
     else:
         model_config: List[tuple[str, List[ReasoningEffort]]] = [
-            (MODEL_NAME_GEMINI_2_5_FLASH_LITE, ["low", "medium", "high"]),
+            (MODEL_NAME_GEMINI_2_5_FLASH, ["disable"]),
+            # (MODEL_NAME_GEMINI_2_5_FLASH_LITE, ["low", "medium", "high"]),
             # (MODEL_NAME_GEMINI_2_5_FLASH, ["disable", "low", "medium", "high"]),
-            (MODEL_NAME_GEMINI_2_5_PRO, ["low", "medium", "high"]),
+            # (MODEL_NAME_GEMINI_2_5_PRO, ["low", "medium", "high"]),
         ]
         optimizer_types: List[OptimizerType] = ["MIPROv2", "GEPA"]
         autos: List[AutoLevel] = ["light"]
