@@ -340,8 +340,7 @@ def placeholder_metric(
       If expected_count is zero, placeholder usage is not penalized.
     """
     example_id: str = getattr(example, "id", "unknown")
-    expected_vars: List[str] = getattr(example, "expected_vars", [])
-    expected_count = len(expected_vars) if expected_vars else 0
+    expected_count = int(getattr(example, "expected_var_used_count", 0) or 0)
 
     registered_vars = list(getattr(pred, "registered_var_names", []))
     registered_count = len(registered_vars) if registered_vars else 0

@@ -10,14 +10,14 @@ import dspy
 class QAExample:
     id: str
     question: str
-    expected_vars: List[str]
+    expected_var_used_count: int
 
 
 def _make_example(ex: QAExample) -> dspy.Example:
     return dspy.Example(
         id=ex.id,
         question=ex.question,
-        expected_vars=list(ex.expected_vars),
+        expected_var_used_count=ex.expected_var_used_count,
     ).with_inputs("question")
 
 
@@ -34,11 +34,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "3) A per-file counts block\n"
             "4) A final total line"
         ),
-        expected_vars=[
-            "available_files_text",
-            "per_file_error_counts_text",
-            "total_error_lines_str",
-        ],
+        expected_var_used_count=3,
     ),
     QAExample(
         id="train_warn_counts_markdown_table",
@@ -47,7 +43,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "and the total across all files.\n"
             "Return a compact Markdown table with columns: file, warn_count, and a separate total line."
         ),
-        expected_vars=["warn_counts_markdown_table", "total_warn_lines_str"],
+        expected_var_used_count=2,
     ),
     QAExample(
         id="train_info_counts_json",
@@ -59,7 +55,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "Compute how many lines contain the substring \"INFO\" in each file.\n"
             "Return (a) a short explanation and (b) a JSON object mapping filename -> info_count."
         ),
-        expected_vars=["info_counts_json"],
+        expected_var_used_count=1,
     ),
     QAExample(
         id="train_max_error_file",
@@ -67,7 +63,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "From the three sample logs, find which file has the highest number of \"ERROR\" lines.\n"
             "Return a short explanation and then the winning file path on its own line."
         ),
-        expected_vars=["max_error_file_path"],
+        expected_var_used_count=1,
     ),
     QAExample(
         id="train_unique_error_lines",
@@ -75,7 +71,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "In the three sample logs, list the unique ERROR messages (the full line text) across all files, sorted alphabetically.\n"
             "Return a short explanation plus the list (one message per line)."
         ),
-        expected_vars=["unique_error_lines_text"],
+        expected_var_used_count=1,
     ),
     QAExample(
         id="train_log_summary_csv",
@@ -85,7 +81,7 @@ TRAIN_EXAMPLES: List[QAExample] = [
             "Include a header row.\n"
             "Return only the CSV."
         ),
-        expected_vars=["log_summary_csv"],
+        expected_var_used_count=1,
     ),
 ]
 
@@ -98,7 +94,7 @@ TEST_EXAMPLES: List[QAExample] = [
             "Determine which files exist in src/optimize_agent/sample_logs, then compute per-file ERROR counts and the overall total.\n"
             "Return a brief explanation, then a per-file block, then the total."
         ),
-        expected_vars=["per_file_error_counts_text", "total_error_lines_str"],
+        expected_var_used_count=2,
     ),
     QAExample(
         id="test_error_or_warn_total",
@@ -106,7 +102,7 @@ TEST_EXAMPLES: List[QAExample] = [
             "Across the three sample logs, compute the total number of lines that contain any of these substrings: \"ERROR\" or \"WARN\".\n"
             "Return a one-sentence explanation and the total as an integer on its own line."
         ),
-        expected_vars=["explanation_sentence", "total_error_or_warn_lines_str"],
+        expected_var_used_count=2,
     ),
     QAExample(
         id="test_markdown_report_placeholders",
@@ -119,7 +115,7 @@ TEST_EXAMPLES: List[QAExample] = [
             "- one short observation about the logs\n\n"
             "Do not include any computed numbers directly; use placeholders."
         ),
-        expected_vars=["total_error_lines_str", "total_warn_lines_str", "one_observation"],
+        expected_var_used_count=3,
     ),
     QAExample(
         id="test_lines_and_errors_per_file",
@@ -128,7 +124,7 @@ TEST_EXAMPLES: List[QAExample] = [
             "<file>: <total_lines> lines, <error_lines> errors\n"
             "One file per line."
         ),
-        expected_vars=["lines_and_errors_per_file_text"],
+        expected_var_used_count=1,
     ),
 ]
 
