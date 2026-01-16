@@ -1,6 +1,7 @@
-from __future__ import annotations
-
+import argparse
+import json
 from pathlib import Path
+from typing import Any
 
 import dspy
 
@@ -39,6 +40,26 @@ def get_available_files() -> list[str]:
 
     files = sorted(p.name for p in sample_dir.glob("*.log") if p.is_file())
     return [f"src/optimize_agent/sample_logs/{name}" for name in files]
+
+
+def load_optimized_program_state(path: str | Path) -> dict[str, Any]:
+    """Load a DSPy module state from a combined optimized program JSON file."""
+    repo_root = Path(__file__).resolve().parents[1]
+    target = Path(path)
+    if not target.is_absolute():
+        target = (repo_root / target).resolve()
+    else:
+        target = target.resolve()
+
+    if repo_root not in target.parents and target != repo_root:
+        raise ValueError(f"Path must be within repo root: {path}")
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
+
+    data = json.loads(target.read_text(encoding="utf-8"))
+    if "program" not in data:
+        raise ValueError(f"Missing 'program' in optimized file: {path}")
+    return data["program"]
 
 
 class AgentSignature(dspy.Signature):
@@ -102,9 +123,18 @@ class LogAgentModule(dspy.Module):
         pred.registered_var_names = sorted(registered_vars.keys())
         return pred
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--optimized-program",
+        type=str,
+        help="Repo-relative path to a combined optimized program JSON.",
+    )
+    args = parser.parse_args(argv)
+
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
     dspy_configure(lm)
+    agent: dspy.Module | None = None
     try:
         q = (
             "Read these local log files: "
@@ -115,6 +145,9 @@ def main() -> None:
         )
         print(f"\nQuestion:\n -> {q}\n")
         agent = LogAgentModule()
+        if args.optimized_program:
+            agent.load_state(load_optimized_program_state(args.optimized_program))
+            print(f"Loaded optimized program from: {args.optimized_program}")
         pred = agent(question=q)
 
         write_agent_logs(
@@ -126,12 +159,14 @@ def main() -> None:
                 write_usage=True,
                 write_history=True,
                 write_final_answer=True,
+                write_tool_calls=True,
                 print_registered_vars=True,
                 print_raw_answer=True,
             ),
         )
     finally:
-        agent.callback.close()
+        if agent:
+            agent.callback.close()
 
 
 if __name__ == "__main__":

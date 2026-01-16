@@ -36,6 +36,11 @@ class ToolUsageTracker:
         """Get all tracked tool logs."""
         return self.tool_logs
 
+    def reset(self) -> None:
+        """Reset tracked tool calls and registered final-output variables."""
+        self.tool_logs = []
+        self.final_output_vars = {}
+
     def register_final_output_vars(self, values: Mapping[str, str]) -> None:
         """Register values for late-binding into the final user-visible answer."""
         for k, v in values.items():

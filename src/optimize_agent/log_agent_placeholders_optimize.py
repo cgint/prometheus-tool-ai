@@ -836,6 +836,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         "--auto",
         choices=["light", "medium", "heavy"],
     )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat the selected scenario(s) this many times in the same process.",
+    )
     args = parser.parse_args(argv)
 
     override_values = [
@@ -883,24 +889,26 @@ def main(argv: Optional[list[str]] = None) -> None:
             for auto in autos
         ]
 
-    for scenario in scenarios:
-        try:
-            optimize_log_agent(
-                optimizer_type=scenario.optimizer_type,
-                auto=scenario.auto,
-                limit_trainset=20,
-                limit_testset=8,
-                randomize_sets=False,
-                reflection_minibatch_size=8,
-                num_threads=2,  # REPL concurrent possible ?
-                baseline_only=args.x,
-                model_name=scenario.model_name,
-                reasoning_effort=scenario.reasoning_effort,
-            )
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"Error in scenario {scenario}: {e}")
+    repeat_count = max(1, args.repeat)
+    for _ in range(repeat_count):
+        for scenario in scenarios:
+            try:
+                optimize_log_agent(
+                    optimizer_type=scenario.optimizer_type,
+                    auto=scenario.auto,
+                    limit_trainset=20,
+                    limit_testset=8,
+                    randomize_sets=False,
+                    reflection_minibatch_size=8,
+                    num_threads=1,  # REPL concurrent possible ?
+                    baseline_only=args.x,
+                    model_name=scenario.model_name,
+                    reasoning_effort=scenario.reasoning_effort,
+                )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"Error in scenario {scenario}: {e}")
 
 
 if __name__ == "__main__":
