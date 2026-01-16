@@ -25,7 +25,7 @@ Analysis of the DSPy optimization run for `log_agent` (Baseline: 33%, Optimized:
 
 ### Optimization Process Measures
 1. **Stricter Metric**:
-    - **Hallucination Penalty**: Use regex to detect numeric literals in the `answer`. If `expected_vars` are provided, any number in the output should be considered a "potential hallucination" unless it's a known constant.
+    - **Hallucination Penalty**: Use regex to detect numeric literals in the `answer`. If `expected_var_used_count` is provided, any number in the output should be considered a "potential hallucination" unless it's a known constant.
     - **Efficiency Bonus**: Reward shorter trajectories (fewer REPL calls) to discourage looping.
     - **Format Penalty**: Penalize "broken" trajectories (parsing errors) heavily.
 2. **Optimizer Choice**:

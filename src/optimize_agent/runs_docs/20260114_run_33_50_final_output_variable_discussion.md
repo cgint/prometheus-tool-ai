@@ -2105,20 +2105,20 @@ Excellent! Now I have everything to analyze this properly.
 ```python
 import dspy
 
-# Each example: question -> expected answer with placeholders + expected registered vars
+# Each example: question -> expected answer with placeholders + expected placeholder count
 gold_examples = [
     dspy.Example(
         question="Generate all Fibonacci numbers up to 10000. Provide sequence, count, largest.",
         # Gold answer template (what the model SHOULD produce)
         answer="The Fibonacci sequence up to 10000 is: {sequence}. There are {count} numbers. The largest is {largest_number}.",
-        # Expected registered variable names
-        expected_vars=["sequence", "count", "largest_number"],
+        # Expected placeholder usage count
+        expected_var_used_count=3,
     ).with_inputs("question"),
     
     dspy.Example(
         question='Count ERROR lines in ["file1.log", "file2.log", "file3.log"]. Per-file + total.',
         answer="Here are the error counts:\n{per_file_counts_text}\n\nTotal: {total_error_lines_str}",
-        expected_vars=["per_file_counts_text", "total_error_lines_str"],
+        expected_var_used_count=2,
     ).with_inputs("question"),
     # ... 18 more examples
 ]
@@ -2138,20 +2138,18 @@ def placeholder_metric(example, pred, trace=None):
     This enforces the "use placeholders, don't paste data" rule.
     """
     answer = pred.answer
-    expected_vars = getattr(example, 'expected_vars', [])
+    expected_count = int(getattr(example, 'expected_var_used_count', 0) or 0)
     
-    if not expected_vars:
+    if expected_count == 0:
         return 1.0  # No vars expected, can't evaluate
     
-    # Check: does answer contain {var_name} for each expected var?
-    found = 0
-    for var in expected_vars:
-        placeholder = f"{{{var}}}"
-        if placeholder in answer:
-            found += 1
+    registered_vars = getattr(pred, 'registered_var_names', [])
+    used_placeholder_count = sum(
+        1 for var in registered_vars if f"{{{var}}}" in answer
+    )
     
-    # Score = fraction of expected placeholders found
-    return found / len(expected_vars)
+    # Score = fraction of expected placeholders used (capped)
+    return min(used_placeholder_count, expected_count) / expected_count
 
 
 def strict_placeholder_metric(example, pred, trace=None):
