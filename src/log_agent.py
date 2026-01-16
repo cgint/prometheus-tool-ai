@@ -6,7 +6,7 @@ from typing import Any
 import dspy
 
 from agent_logging import AgentLogConfig, write_agent_logs
-from constants import MODEL_NAME_GEMINI_2_5_FLASH
+from constants import MODEL_NAME_GEMINI_3_FLASH_PREVIEW
 from repl.python_tool_repl import build_hacky_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
@@ -89,7 +89,47 @@ class AgentSignature(dspy.Signature):
 
     question = dspy.InputField()
     answer = dspy.OutputField()
-
+#
+# TODO: Thoughts on better way to handle the REPL and registering the final output (GEPA+concurrency safe)
+#
+# dspy.context(...) is the right “run context” mechanism in DSPy — the “only once / same thread” restriction you’re thinking of applies to dspy.configure(...), not to dspy.context(...).        
+#                                                                                                                                                                                                 
+#  Conclusion: even inside GEPA you are in control of per-run context, because GEPA ultimately evaluates by calling program(**example.inputs()) inside Evaluate worker threads. Your module’s     
+#  forward() runs there, so you can create a fresh per-example tracker/REPL-state and install it with dspy.context(...) inside forward(). GEPA doesn’t need to wrap anything.                     
+#                                                                                                                                                                                                 
+#  The missing piece is: context only helps if the tool reads state from the context. If python_repl still closes over a long-lived tracker/state (closure), GEPA+deepcopy+threads can still      
+#  leak.                                                                                                                                                                                          
+#                                                                                                                                                                                                 
+#  Two “work with the system” patterns:                                                                                                                                                           
+#  1. Per-call objects created in forward() + passed via dspy.context                                                                                                                             
+#      - tracker = ToolUsageTracker(), callback = ToolCallCallback(tracker), repl_state = {}                                                                                                      
+#      - with dspy.context(callbacks=[callback], run_state=...) run the agent                                                                                                                     
+#      - python_repl looks up dspy.settings.run_state at call time (no captured tracker/state)                                                                                                    
+#  2. Use callbacks as the “run context container” (most DSPy-native)                                                                                                                             
+#      - Put tracker + repl_state on a callback instance                                                                                                                                          
+#      - Push it via dspy.context(callbacks=[that_callback])                                                                                                                                      
+#      - python_repl finds the active callback via dspy.settings.callbacks and uses its state                                                                                                     
+#                                                                                                                                                                                                 
+#  Either way, you don’t need any special GEPA hook: the isolation boundary is per forward() call, and GEPA can’t bypass that.                                                                    
+#                                                                                                                                                                                                 
+#  2. sounds good - Just two things because we ran into issues previously - The self.agent must be present for GEPA. I am not sure if it has to be initialized in the constructor already.        
+#  Because if we initialize the tracker in the forward, then we have kind of a hen and egg. Please look at class LogAgentModule(dspy.Module):Again, and tell me what you think.                   
+# 
+#  Yes: for GEPA you really want self.agent (and therefore the underlying predictors) to exist before GEPA.compile(...) runs. GEPA reads student.named_predictors() and then repeatedly does      
+#  student.deepcopy() + edits predictor instructions. If you rebuild self.agent inside forward(), you risk throwing away GEPA’s mutated predictor instructions (you’d be recreating fresh         
+#  predictors with default prompts).                                                                                                                                                              
+#                                                                                                                                                                                                 
+#  The “hen and egg” only exists because your current build_python_repl_tool(self.tracker, ...) bakes the tracker (and REPL state={}) into a closure at construction time. If you switch to       
+#  pattern (2), you don’t need tracker at init:                                                                                                                                                   
+#                                                                                                                                                                                                 
+#  - Keep self.agent = dspy.ReAct(...) created in __init__ with a context-aware python_repl tool that does not capture tracker/state.                                                             
+#  - In forward(), create a fresh tracker + callback (+ repl_state) per call and run:                                                                                                             
+#      - with dspy.context(callbacks=[run_callback]): pred = self.agent(...)                                                                                                                      
+#  - Inside python_repl, resolve “current run state” by looking at dspy.settings.callbacks and picking your callback instance (e.g., a dedicated RunStateCallback that holds tracker and          
+#  repl_state).                                                                                                                                                                                   
+#                                                                                                                                                                                                 
+#  This is actually more aligned with DSPy’s execution model, because Evaluate(num_threads>1) calls the same program instance concurrently across threads — so storing self.tracker/self.callback 
+#  on the module is inherently unsafe, whereas a per-call callback in dspy.context(...) is thread-isolated and GEPA-compatible.  
 class LogAgentModule(dspy.Module):
     def __init__(self):
         super().__init__()
@@ -132,7 +172,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
+    lm = get_lm_for_model_name(MODEL_NAME_GEMINI_3_FLASH_PREVIEW, "disable")
     dspy_configure(lm)
     agent: dspy.Module | None = None
     try:
