@@ -18,7 +18,7 @@ import logging
 
 import dspy
 
-from constants import MODEL_NAME_GEMINI_2_5_FLASH
+from constants import MODEL_NAME_GEMINI_2_5_FLASH, MODEL_NAME_GEMINI_2_5_FLASH_LITE, MODEL_NAME_GEMINI_2_5_PRO
 from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,
@@ -621,8 +621,11 @@ def main(argv: Optional[list[str]] = None) -> None:
             )
         ]
     else:
-        model_names: List[str] = [MODEL_NAME_GEMINI_2_5_FLASH]
-        reasoning_efforts: List[ReasoningEffort] = ["disable", "low", "medium", "high"]
+        model_config: List[tuple[str, List[ReasoningEffort]]] = [
+            (MODEL_NAME_GEMINI_2_5_FLASH_LITE, ["low", "medium", "high"]),
+            # (MODEL_NAME_GEMINI_2_5_FLASH, ["disable", "low", "medium", "high"]),
+            (MODEL_NAME_GEMINI_2_5_PRO, ["low", "medium", "high"]),
+        ]
         optimizer_types: List[OptimizerType] = ["MIPROv2", "GEPA"]
         autos: List[AutoLevel] = ["light"]
         scenarios = [
@@ -632,12 +635,10 @@ def main(argv: Optional[list[str]] = None) -> None:
                 optimizer_type=optimizer_type,
                 auto=auto,
             )
-            for model_name, reasoning_effort, optimizer_type, auto in product(
-                model_names,
-                reasoning_efforts,
-                optimizer_types,
-                autos,
-            )
+            for model_name, reasoning_efforts in model_config
+            for reasoning_effort in reasoning_efforts
+            for optimizer_type in optimizer_types
+            for auto in autos
         ]
 
     for scenario in scenarios:
