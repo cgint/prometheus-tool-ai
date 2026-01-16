@@ -5,6 +5,8 @@ MODEL_NAME_GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite"
 MODEL_NAME_GEMINI_2_5_FLASH = "gemini-2.5-flash"
 MODEL_NAME_GEMINI_2_5_FLASH_LITE = "gemini-2.5-flash-lite"
 MODEL_NAME_GEMINI_2_5_PRO = "gemini-2.5-pro"
+MODEL_NAME_GEMINI_3_FLASH_PREVIEW = "gemini/gemini-3-flash-preview"
+MODEL_NAME_GEMINI_3_PRO_PREVIEW = "gemini/gemini-3-pro-preview"
 
 # --- Ollama OpenAI-compatible defaults ---
 # Base URL for OpenAI-compatible API exposed by Ollama
