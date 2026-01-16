@@ -23,29 +23,29 @@ class LogAgentModule(dspy.Module):
     def __init__(self, lm: dspy.LM):
         super().__init__()
         self.lm = lm
+        self.tracker = ToolUsageTracker()
+        self.callback = ToolCallCallback(self.tracker)
+        self.tools = [
+            build_python_repl_tool(
+                self.tracker,
+                sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
+                track_sub_tools=False,
+            )
+        ]
+        self.agent = dspy.ReAct(
+            signature=AgentSignature,
+            tools=self.tools,
+            max_iters=10,
+        )
 
     def forward(self, question: str) -> dspy.Prediction:
-        tracker = ToolUsageTracker()
-        callback = ToolCallCallback(tracker)
         try:
-            with dspy.context(lm=self.lm, callbacks=[callback]):
-                tools = [
-                    build_python_repl_tool(
-                        tracker,
-                        sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
-                        track_sub_tools=False,
-                    )
-                ]
-                agent = dspy.ReAct(
-                    signature=AgentSignature,
-                    tools=tools,
-                    max_iters=10,
-                )
-                pred = agent(question=question)
+            with dspy.context(lm=self.lm, callbacks=[self.callback]):
+                pred = self.agent(question=question)
         finally:
-            callback.close()
+            self.callback.close()
 
-        registered_vars = tracker.get_final_output_vars()
+        registered_vars = self.tracker.get_final_output_vars()
         pred.registered_vars = registered_vars
         pred.registered_var_names = sorted(registered_vars.keys())
         return pred
@@ -89,7 +89,8 @@ def optimize_log_agent(
     limit_trainset: int,
     limit_testset: int,
     randomize_sets: bool = False,
-    reflection_minibatch_size: int = 8,
+    reflection_minibatch_size: int = 3,
+    num_threads: int = 2,
 ) -> None:
     lm = get_lm_for_model_name(MODEL_NAME_GEMINI_2_5_FLASH, "disable")
     dspy_configure(lm)
@@ -107,7 +108,7 @@ def optimize_log_agent(
     baseline_score = dspy.Evaluate(
         devset=testset,
         metric=placeholder_metric,
-        num_threads=1,
+        num_threads=num_threads,
         display_progress=True,
     )(baseline_module)
 
@@ -115,7 +116,7 @@ def optimize_log_agent(
         optimizer = dspy.MIPROv2(
             metric=placeholder_metric,
             auto=auto,
-            num_threads=1,
+            num_threads=num_threads,
             max_bootstrapped_demos=4,
             max_labeled_demos=4,
             prompt_model=lm,
@@ -148,7 +149,7 @@ def optimize_log_agent(
         optimizer = dspy.GEPA(
             metric=PlaceholderFeedbackMetric(),
             auto=auto,
-            num_threads=1,
+            num_threads=num_threads,
             track_stats=True,
             skip_perfect_score=True,
             add_format_failure_as_feedback=True,
@@ -167,7 +168,7 @@ def optimize_log_agent(
     optimized_score = dspy.Evaluate(
         devset=testset,
         metric=placeholder_metric,
-        num_threads=1,
+        num_threads=num_threads,
         display_progress=True,
     )(optimized_module)
 
@@ -178,12 +179,13 @@ def optimize_log_agent(
 
 def main() -> None:
     optimize_log_agent(
-        optimizer_type="MIPROv2",
+        optimizer_type="GEPA",
         auto="light",
         limit_trainset=20,
         limit_testset=8,
         randomize_sets=False,
         reflection_minibatch_size=8,
+        num_threads=1, # REPL concurrent possible ?
     )
 
 
