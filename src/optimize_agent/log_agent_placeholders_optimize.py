@@ -113,6 +113,26 @@ def _run_metrics_csv_path() -> Path:
     return _run_logs_dir() / "metrics.csv"
 
 
+def _ensure_metric_csv_header(csv_path: Path, fieldnames: list[str]) -> None:
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return
+
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        existing_header = next(reader, None)
+        if not existing_header or existing_header == fieldnames:
+            return
+
+        tmp_path = csv_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8", newline="") as tmp_file:
+            writer = csv.DictWriter(tmp_file, fieldnames=fieldnames)
+            writer.writeheader()
+            dict_reader = csv.DictReader(f, fieldnames=existing_header)
+            for row in dict_reader:
+                writer.writerow(row)
+        tmp_path.replace(csv_path)
+
+
 def _append_metric_csv_row(
     *,
     test_id: str,
@@ -122,6 +142,9 @@ def _append_metric_csv_row(
     used_placeholder_count: int | None,
     count_score: float,
     placeholder_in_answer_score: float,
+    tool_error_count: int,
+    tool_error_score: float,
+    tool_error_categories: dict[str, int],
     full_run_log_filename: str | None,
 ) -> None:
     run_dir = _run_logs_dir()
@@ -136,10 +159,12 @@ def _append_metric_csv_row(
         "used_placeholder_count",
         "count_score",
         "placeholder_in_answer_score",
+        "tool_error_count",
+        "tool_error_score",
+        "tool_error_categories",
         "full_run_log_filename",
     ]
 
-    write_header = (not csv_path.exists()) or csv_path.stat().st_size == 0
     row: dict[str, Any] = {
         "test_id": test_id,
         "final_score": f"{final_score:.2f}",
@@ -148,10 +173,15 @@ def _append_metric_csv_row(
         "used_placeholder_count": used_placeholder_count,
         "count_score": f"{count_score:.2f}",
         "placeholder_in_answer_score": f"{placeholder_in_answer_score:.2f}",
+        "tool_error_count": tool_error_count,
+        "tool_error_score": f"{tool_error_score:.2f}",
+        "tool_error_categories": json.dumps(tool_error_categories, sort_keys=True),
         "full_run_log_filename": full_run_log_filename,
     }
 
     with _CSV_LOCK:
+        _ensure_metric_csv_header(csv_path, fieldnames)
+        write_header = (not csv_path.exists()) or csv_path.stat().st_size == 0
         with csv_path.open("a", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if write_header:
@@ -307,8 +337,107 @@ class PlaceholderMetricDetails(BaseModel):
     used_placeholder_count: int
     count_score: float
     placeholder_in_answer_score: float
+    tool_error_count: int
+    tool_error_score: float
+    tool_error_categories: dict[str, int]
     final_score: float
     unregistered_placeholders: list[str]
+
+
+_TOOL_ERROR_PATTERNS: list[tuple[str, str, str]] = [
+    (
+        "register_for_final_output_non_string",
+        r"register_for_final_output only accepts string values",
+        "register_for_final_output expects strings; convert non-strings with str(...) and format structured outputs.",
+    ),
+    (
+        "syntax_error",
+        r"SyntaxError:",
+        "Fix Python syntax; use proper quoting and avoid invalid eval-only statements.",
+    ),
+    (
+        "restricted_import",
+        r"ImportError: Import '.*' not allowed",
+        "Use only the allowed imports inside python_repl.",
+    ),
+    (
+        "finish_arg_mismatch",
+        r"Arg .* is not in the tool's args",
+        "The finish tool takes no arguments; call it without any parameters.",
+    ),
+    (
+        "file_not_found",
+        r"FileNotFoundError:",
+        "Verify log file paths via get_available_files() before reading.",
+    ),
+    (
+        "json_decode_error",
+        r"JSONDecodeError:",
+        "Ensure JSON strings are valid and use double quotes for keys/strings.",
+    ),
+    (
+        "name_error",
+        r"NameError:",
+        "Avoid undefined names; rely on provided helpers and declared variables.",
+    ),
+    (
+        "type_error",
+        r"TypeError:",
+        "Check argument types passed to helpers/tools.",
+    ),
+    (
+        "value_error",
+        r"ValueError:",
+        "Check argument names/values passed to helpers/tools.",
+    ),
+]
+
+
+def _extract_trajectory_observations(pred: dspy.Prediction) -> list[str]:
+    trajectory = getattr(pred, "trajectory", None)
+    if trajectory is None:
+        store = getattr(pred, "_store", None)
+        if isinstance(store, dict):
+            trajectory = store.get("trajectory")
+    if isinstance(trajectory, dict):
+        return [
+            str(value)
+            for key, value in trajectory.items()
+            if key.startswith("observation_")
+        ]
+    if isinstance(trajectory, list):
+        return [str(value) for value in trajectory]
+    return []
+
+
+def _classify_tool_error(observation: str) -> tuple[str, str]:
+    for category, pattern, hint in _TOOL_ERROR_PATTERNS:
+        if re.search(pattern, observation):
+            return category, hint
+    return "unknown_error", "Review the traceback and correct the tool usage or code."
+
+
+def _tool_error_summary(
+    pred: dspy.Prediction,
+) -> tuple[int, float, dict[str, int], list[str]]:
+    observations = _extract_trajectory_observations(pred)
+    error_categories: dict[str, int] = {}
+    hints: list[str] = []
+
+    for observation in observations:
+        if "Traceback" not in observation and "Execution error" not in observation:
+            continue
+        category, hint = _classify_tool_error(observation)
+        error_categories[category] = error_categories.get(category, 0) + 1
+        if hint not in hints:
+            hints.append(hint)
+
+    error_count = sum(error_categories.values())
+    if error_count == 0:
+        error_score = 1.0
+    else:
+        error_score = max(0.0, 1.0 - 0.25 * error_count)
+    return error_count, error_score, error_categories, hints
 
 
 def _placeholder_metric_details(
@@ -316,6 +445,8 @@ def _placeholder_metric_details(
 ) -> tuple[PlaceholderMetricDetails, str]:
     """
     Evaluate how well the prediction uses expected placeholders.
+
+    final_score = average(count_score, placeholder_in_answer_score, tool_error_score)
 
     Scoring semantics:
     | Scenario                      | count_score | placeholder_in_answer_score       |
@@ -349,6 +480,10 @@ def _placeholder_metric_details(
       how many are actually used in the answer, capped by expected_count.
       Placeholder names do not need to match expected names.
       If expected_count is zero, placeholder usage is not penalized.
+    - tool_error_score: Starts at 1.0 and is reduced by 0.25 per tool traceback
+      observed in the trajectory (floored at 0.0).
+    - final_score: Average of count_score, placeholder_in_answer_score,
+      and tool_error_score.
     """
     example_id: str = getattr(example, "id", "unknown")
     expected_count = int(getattr(example, "expected_var_used_count", 0) or 0)
@@ -373,7 +508,13 @@ def _placeholder_metric_details(
         capped_used_count = min(used_placeholder_count, expected_count)
         placeholder_in_answer_score = capped_used_count / expected_count
 
-    final_score = (count_score + placeholder_in_answer_score) / 2.0
+    tool_error_count, tool_error_score, tool_error_categories, tool_error_hints = (
+        _tool_error_summary(pred)
+    )
+
+    final_score = (
+        count_score + placeholder_in_answer_score + tool_error_score
+    ) / 3.0
 
     placeholder_matches = set(re.findall(r"\{([^\}]+)\}", answer_text))
     unregistered_placeholders = sorted(
@@ -387,6 +528,9 @@ def _placeholder_metric_details(
         used_placeholder_count=used_placeholder_count,
         count_score=count_score,
         placeholder_in_answer_score=placeholder_in_answer_score,
+        tool_error_count=tool_error_count,
+        tool_error_score=tool_error_score,
+        tool_error_categories=tool_error_categories,
         final_score=final_score,
         unregistered_placeholders=unregistered_placeholders,
     )
@@ -428,6 +572,18 @@ def _placeholder_metric_details(
     else:
         unregistered_msg = "Answer placeholders all registered (ok)."
 
+    if tool_error_count == 0:
+        tool_error_msg = "Tool errors: none."
+    else:
+        categories_text = ", ".join(
+            f"{name}={count}"
+            for name, count in sorted(tool_error_categories.items())
+        )
+        hints_text = "; ".join(tool_error_hints) if tool_error_hints else "Review tracebacks."
+        tool_error_msg = (
+            f"Tool errors: {tool_error_count} ({categories_text}). Hints: {hints_text}."
+        )
+
     if final_score < 1.0:
         feedback_prefix = (
             "Use placeholders for all computed values and ensure variables are registered. "
@@ -437,7 +593,8 @@ def _placeholder_metric_details(
         feedback_prefix = "Good: placeholder usage and registration look correct within the expectations."
 
     feedback = (
-        f"{feedback_prefix} {expected_vs_used_msg} {registered_msg} {unregistered_msg}"
+        f"{feedback_prefix} {expected_vs_used_msg} {registered_msg} "
+        f"{unregistered_msg} {tool_error_msg}"
     )
 
     return details, feedback
@@ -451,7 +608,8 @@ def placeholder_metric(
     msg = (
         f"test_id={details.example_id} placeholder_metric final_score={details.final_score} expected_count={details.expected_count} "
         f"registered_count={details.registered_count} used_placeholder_count={details.used_placeholder_count} "
-        f"count_score={details.count_score} placeholder_in_answer_score={details.placeholder_in_answer_score}"
+        f"count_score={details.count_score} placeholder_in_answer_score={details.placeholder_in_answer_score} "
+        f"tool_error_count={details.tool_error_count} tool_error_score={details.tool_error_score}"
     )
     print(msg)
     run_logger.info(msg)
@@ -478,6 +636,9 @@ def placeholder_metric(
         used_placeholder_count=details.used_placeholder_count,
         count_score=details.count_score,
         placeholder_in_answer_score=details.placeholder_in_answer_score,
+        tool_error_count=details.tool_error_count,
+        tool_error_score=details.tool_error_score,
+        tool_error_categories=details.tool_error_categories,
         full_run_log_filename=_CURRENT_RUN_LOG_FILENAME,
     )
     return details.final_score
@@ -707,7 +868,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             # (MODEL_NAME_GEMINI_2_5_FLASH, ["disable", "low", "medium", "high"]),
             # (MODEL_NAME_GEMINI_2_5_PRO, ["low", "medium", "high"]),
         ]
-        optimizer_types: List[OptimizerType] = ["MIPROv2", "GEPA"]
+        optimizer_types: List[OptimizerType] = ["GEPA"]
         autos: List[AutoLevel] = ["light"]
         scenarios = [
             Scenario(
