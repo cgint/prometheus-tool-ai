@@ -21,8 +21,7 @@ def ask_llm(question: str, context: str = "") -> str:
     This is useful for summarizing chunks of text, extracting specific information,
     or performing semantic reasoning on data that cannot be done with regex.
     """
-    # Use ChainOfThought for better reasoning capabilities on the chunk
-    predictor = dspy.ChainOfThought(RecursiveLMSignature)
+    predictor = dspy.Predict(RecursiveLMSignature)
 
     result = predictor(question=question, context=context)
     return result.answer
