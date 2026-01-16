@@ -5,6 +5,13 @@ Diagram source: [docs/log_agent.d2](log_agent.d2)
 
 ![Log Agent (ReAct + Python REPL tool structure)](log_agent.svg)
 
+## The answer format
+The following could be a predicted answer from the LLM.
+The placeholders are replaced with the actual values That were registered during the agent run within a Python REPL.
+
+
+<img src="agent_run_tool_calls_answer_placeholders_w_text.png" alt="LLM Answer with filled placeholders" style="display: block; margin: 0 auto; width: 800px; max-width: 90%;">
+
 ## The tools it has (in this module)
 - ReAct tool: `python_repl` (a persistent Python session)
 - Tools available *inside* `python_repl`:
