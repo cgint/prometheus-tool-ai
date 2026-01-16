@@ -314,6 +314,42 @@ class PlaceholderMetricDetails(BaseModel):
 def _placeholder_metric_details(
     example: dspy.Example, pred: dspy.Prediction
 ) -> tuple[PlaceholderMetricDetails, str]:
+    """
+    Evaluate how well the prediction uses expected placeholders.
+
+    Scoring semantics:
+    | Scenario                      | count_score | placeholder_in_answer_score       |
+    |-------------------------------|-------------|-----------------------------------|
+    | expected=0, registered=0      | 1.0         | 1.0                               |
+    | expected=2, registered=0      | 0.0         | ratio of used/expected            |
+    | expected=2, registered=2      | 1.0         | ratio of used/expected            |
+    | expected=2, registered=4      | 1.0         | ratio of used/expected (capped)   |
+    | expected=4, used=2            | 0.0         | ratio of used/expected            |
+
+    Additional examples (expressive, no table format):
+    - Expected=3, Registered=5, Used=3
+      -> count_score=1.0 (registered >= expected)
+      -> placeholder_in_answer_score=1.0 (used capped to expected)
+    - Expected=3, Registered=5, Used=1
+      -> count_score=1.0
+      -> placeholder_in_answer_score=1/3
+    - Expected=1, Registered=0, Used=0
+      -> count_score=0.0
+      -> placeholder_in_answer_score=0.0
+    - Expected=0, Registered=2, Used=2
+      -> count_score=1.0
+      -> placeholder_in_answer_score=1.0 (expected_count=0 is not penalized)
+    - Expected=4, Registered=4, Used=6
+      -> count_score=1.0
+      -> placeholder_in_answer_score=1.0 (used capped to expected)
+
+    - count_score: Penalizes only if registered FEWER than expected.
+      Registering MORE is acceptable (no penalty, but no bonus).
+    - placeholder_in_answer_score: Of the REGISTERED placeholders,
+      how many are actually used in the answer, capped by expected_count.
+      Placeholder names do not need to match expected names.
+      If expected_count is zero, placeholder usage is not penalized.
+    """
     example_id: str = getattr(example, "id", "unknown")
     expected_count = int(getattr(example, "expected_var_used_count", 0) or 0)
 
@@ -358,17 +394,50 @@ def _placeholder_metric_details(
     unregistered_text = (
         ", ".join(unregistered_placeholders) if unregistered_placeholders else "none"
     )
+
+    if expected_count == 0:
+        expected_vs_used_msg = (
+            "Expected vs used: expected 0 placeholders; usage is not required."
+        )
+    elif used_placeholder_count == expected_count:
+        expected_vs_used_msg = (
+            f"Expected vs used: expected {expected_count}, used {used_placeholder_count} (ok)."
+        )
+    elif used_placeholder_count < expected_count:
+        expected_vs_used_msg = (
+            f"Expected vs used: expected {expected_count}, used {used_placeholder_count} (missing {expected_count - used_placeholder_count})."
+        )
+    else:
+        expected_vs_used_msg = (
+            f"Expected vs used: expected {expected_count}, used {used_placeholder_count} (some extra use of placeholders is ok)."
+        )
+
+    if registered_count >= expected_count:
+        registered_msg = (
+            f"Registration: registered {registered_count} placeholders (ok; expected at least {expected_count})."
+        )
+    else:
+        registered_msg = (
+            f"Registration: registered {registered_count} placeholders (missing {expected_count - registered_count})."
+        )
+
+    if unregistered_placeholders:
+        unregistered_msg = (
+            f"Answer placeholders not registered: {unregistered_text}."
+        )
+    else:
+        unregistered_msg = "Answer placeholders all registered (ok)."
+
     if final_score < 1.0:
         feedback_prefix = (
-            "Use placeholders for all computed values and ensure the variables are registered. "
+            "Use placeholders for all computed values and ensure variables are registered. "
             "Do not paste computed data directly."
         )
     else:
-        feedback_prefix = "Good: placeholders used and variables registered."
+        feedback_prefix = "Good: placeholder usage and registration look correct within the expectations."
+
     feedback = (
-        f"{feedback_prefix} Expected placeholders: {expected_count}. "
-        f"Registered: {registered_count}. Used in answer: {used_placeholder_count}. "
-        f"Unregistered placeholders: {unregistered_text}."
+        f"{feedback_prefix} {expected_vs_used_msg} {registered_msg} {unregistered_msg}"
     )
 
     return details, feedback
@@ -377,42 +446,6 @@ def _placeholder_metric_details(
 def placeholder_metric(
     example: dspy.Example, pred: dspy.Prediction, trace: Any = None
 ) -> float:
-    """
-    Evaluate how well the prediction uses expected placeholders.
-
-    Scoring semantics:
-    | Scenario                      | count_score | placeholder_in_answer_score       |
-    |-------------------------------|-------------|-----------------------------------|
-    | expected=0, registered=0      | 1.0         | 1.0                               |
-    | expected=2, registered=0      | 0.0         | ratio of used/expected            |
-    | expected=2, registered=2      | 1.0         | ratio of used/expected            |
-    | expected=2, registered=4      | 1.0         | ratio of used/expected (capped)   |
-    | expected=4, used=2            | 0.0         | ratio of used/expected            |
-
-    Additional examples (expressive, no table format):
-    - Expected=3, Registered=5, Used=3
-      -> count_score=1.0 (registered >= expected)
-      -> placeholder_in_answer_score=1.0 (used capped to expected)
-    - Expected=3, Registered=5, Used=1
-      -> count_score=1.0
-      -> placeholder_in_answer_score=1/3
-    - Expected=1, Registered=0, Used=0
-      -> count_score=0.0
-      -> placeholder_in_answer_score=0.0
-    - Expected=0, Registered=2, Used=2
-      -> count_score=1.0
-      -> placeholder_in_answer_score=1.0 (expected_count=0 is not penalized)
-    - Expected=4, Registered=4, Used=6
-      -> count_score=1.0
-      -> placeholder_in_answer_score=1.0 (used capped to expected)
-
-    - count_score: Penalizes only if registered FEWER than expected.
-      Registering MORE is acceptable (no penalty, but no bonus).
-    - placeholder_in_answer_score: Of the REGISTERED placeholders,
-      how many are actually used in the answer, capped by expected_count.
-      Placeholder names do not need to match expected names.
-      If expected_count is zero, placeholder usage is not penalized.
-    """
     details, _feedback = _placeholder_metric_details(example, pred)
 
     msg = (
