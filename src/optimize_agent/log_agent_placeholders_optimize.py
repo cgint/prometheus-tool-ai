@@ -18,7 +18,7 @@ import logging
 
 import dspy
 
-from constants import MODEL_NAME_GEMINI_2_5_FLASH
+from constants import MODEL_NAME_GEMINI_3_FLASH_PREVIEW
 from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,
@@ -665,7 +665,7 @@ def optimize_log_agent(
     reflection_minibatch_size: int = 3,
     num_threads: int = 2,
     baseline_only: bool = False,
-    model_name: str = MODEL_NAME_GEMINI_2_5_FLASH,
+    model_name: str = MODEL_NAME_GEMINI_3_FLASH_PREVIEW,
     reasoning_effort: ReasoningEffort = "disable",
 ) -> None:
     run_metadata: dict[str, Any] = {
@@ -869,7 +869,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         ]
     else:
         model_config: List[tuple[str, List[ReasoningEffort]]] = [
-            (MODEL_NAME_GEMINI_2_5_FLASH, ["disable"]),
+            (MODEL_NAME_GEMINI_3_FLASH_PREVIEW, ["disable"]),
             # (MODEL_NAME_GEMINI_2_5_FLASH_LITE, ["low", "medium", "high"]),
             # (MODEL_NAME_GEMINI_2_5_FLASH, ["disable", "low", "medium", "high"]),
             # (MODEL_NAME_GEMINI_2_5_PRO, ["low", "medium", "high"]),
