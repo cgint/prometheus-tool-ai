@@ -7,9 +7,12 @@ import os
 import threading
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
+from itertools import product
 from pathlib import Path
 from typing import Any, List, Literal, Optional
 from uuid import uuid4
+
+from pydantic import BaseModel
 
 import logging
 
@@ -29,6 +32,17 @@ run_logger = logging.getLogger("optimize_agent.run_logs")
 _CSV_LOCK = threading.Lock()
 _CURRENT_RUN_LOG_FILENAME: str | None = None
 _PRED_DUMP_SEQ = 0
+
+OptimizerType = Literal["MIPROv2", "GEPA"]
+AutoLevel = Literal["light", "medium", "heavy"]
+ReasoningEffort = Literal["disable", "low", "medium", "high"]
+
+
+class Scenario(BaseModel):
+    model_name: str
+    reasoning_effort: ReasoningEffort
+    optimizer_type: OptimizerType
+    auto: AutoLevel
 
 
 def _run_logs_dir() -> Path:
@@ -293,18 +307,20 @@ def placeholder_metric(
     Evaluate how well the prediction uses expected placeholders.
 
     Scoring semantics:
-    | Scenario                      | count_score | placeholder_in_answer_score   |
-    |-------------------------------|-------------|-------------------------------|
-    | expected=0, registered=0      | 1.0         | 1.0                           |
-    | expected=2, registered=0      | 0.0         | 0.0                           |
-    | expected=2, registered=2      | 1.0         | ratio of used/registered      |
-    | expected=2, registered=4      | 1.0         | ratio of used/registered      |
-    | expected=4, registered=2      | 0.0         | ratio of used/registered      |
+    | Scenario                      | count_score | placeholder_in_answer_score       |
+    |-------------------------------|-------------|-----------------------------------|
+    | expected=0, registered=0      | 1.0         | 1.0                               |
+    | expected=2, registered=0      | 0.0         | ratio of expected used/expected   |
+    | expected=2, registered=2      | 1.0         | ratio of expected used/expected   |
+    | expected=2, registered=4      | 1.0         | ratio of expected used/expected   |
+    | expected=4, registered=2      | 0.0         | ratio of expected used/expected   |
 
     - count_score: Penalizes only if registered FEWER than expected.
       Registering MORE is acceptable (no penalty, but no bonus).
-    - placeholder_in_answer_score: Of the placeholders registered,
+    - placeholder_in_answer_score: Of the EXPECTED placeholders,
       how many are actually used in the answer?
+      Registering MORE then are used is acceptable (no penalty, but no bonus).
+      Registering LESS then are used is penalized.
     """
     example_id: str = getattr(example, "id", "unknown")
     expected_vars: List[str] = getattr(example, "expected_vars", [])
@@ -319,16 +335,16 @@ def placeholder_metric(
         missing_count = expected_count - registered_count
         count_score = max(0.0, 1.0 - 0.5 * missing_count)
 
-    used_placeholder_count: int | None = None
-    if registered_count == 0 and expected_count == 0:
+    expected_used_count = 0
+    if expected_count == 0:
         placeholder_in_answer_score = 1.0
-    elif registered_count == 0 and expected_count > 0:
-        placeholder_in_answer_score = 0.0
     else:
-        used_placeholder_count = sum(
-            1 for var in registered_vars if f"{{{var}}}" in pred.answer
+        expected_used_count = sum(
+            1 for var in expected_vars if f"{{{var}}}" in pred.answer
         )
-        placeholder_in_answer_score = used_placeholder_count / registered_count
+        placeholder_in_answer_score = expected_used_count / expected_count
+
+    used_placeholder_count = expected_used_count
 
     final_score = (count_score + placeholder_in_answer_score) / 2.0
     msg = (
@@ -379,8 +395,8 @@ def to_human_Readable_run_metadata(run_metadata: dict[str, Any]) -> str:
 
 
 def optimize_log_agent(
-    optimizer_type: Literal["MIPROv2", "GEPA"],
-    auto: Literal["light", "medium", "heavy"],
+    optimizer_type: OptimizerType,
+    auto: AutoLevel,
     limit_trainset: int,
     limit_testset: int,
     randomize_sets: bool = False,
@@ -388,7 +404,7 @@ def optimize_log_agent(
     num_threads: int = 2,
     baseline_only: bool = False,
     model_name: str = MODEL_NAME_GEMINI_2_5_FLASH,
-    reasoning_effort: Literal["disable", "low", "medium", "high"] = "disable",
+    reasoning_effort: ReasoningEffort = "disable",
 ) -> None:
     run_metadata: dict[str, Any] = {
         "optimizer_type": optimizer_type,
@@ -551,18 +567,82 @@ def main(argv: Optional[list[str]] = None) -> None:
         action="store_true",
         help="Only compute baseline metrics and exit (skip optimization).",
     )
+    parser.add_argument("--model-name", type=str)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["disable", "low", "medium", "high"],
+    )
+    parser.add_argument(
+        "--optimizer-type",
+        choices=["MIPROv2", "GEPA"],
+    )
+    parser.add_argument(
+        "--auto",
+        choices=["light", "medium", "heavy"],
+    )
     args = parser.parse_args(argv)
 
-    optimize_log_agent(
-        optimizer_type="MIPROv2",
-        auto="light",
-        limit_trainset=20,
-        limit_testset=8,
-        randomize_sets=False,
-        reflection_minibatch_size=8,
-        num_threads=2,  # REPL concurrent possible ?
-        baseline_only=args.x,
-    )
+    override_values = [
+        args.model_name,
+        args.reasoning_effort,
+        args.optimizer_type,
+        args.auto,
+    ]
+    if any(value is not None for value in override_values) and not all(
+        value is not None for value in override_values
+    ):
+        parser.error(
+            "Provide either none or all of --model-name, --reasoning-effort, "
+            "--optimizer-type, and --auto."
+        )
+
+    if all(value is not None for value in override_values):
+        scenarios = [
+            Scenario(
+                model_name=args.model_name,
+                reasoning_effort=args.reasoning_effort,
+                optimizer_type=args.optimizer_type,
+                auto=args.auto,
+            )
+        ]
+    else:
+        model_names: List[str] = [MODEL_NAME_GEMINI_2_5_FLASH]
+        reasoning_efforts: List[ReasoningEffort] = ["disable", "low", "medium", "high"]
+        optimizer_types: List[OptimizerType] = ["MIPROv2", "GEPA"]
+        autos: List[AutoLevel] = ["light"]
+        scenarios = [
+            Scenario(
+                model_name=model_name,
+                reasoning_effort=reasoning_effort,
+                optimizer_type=optimizer_type,
+                auto=auto,
+            )
+            for model_name, reasoning_effort, optimizer_type, auto in product(
+                model_names,
+                reasoning_efforts,
+                optimizer_types,
+                autos,
+            )
+        ]
+
+    for scenario in scenarios:
+        try:
+            optimize_log_agent(
+                optimizer_type=scenario.optimizer_type,
+                auto=scenario.auto,
+                limit_trainset=20,
+                limit_testset=8,
+                randomize_sets=False,
+                reflection_minibatch_size=8,
+                num_threads=2,  # REPL concurrent possible ?
+                baseline_only=args.x,
+                model_name=scenario.model_name,
+                reasoning_effort=scenario.reasoning_effort,
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Error in scenario {scenario}: {e}")
 
 
 if __name__ == "__main__":
