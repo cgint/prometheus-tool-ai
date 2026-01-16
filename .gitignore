@@ -58,6 +58,7 @@ playwright-report/
 
 *.log
 !src/optimize_agent/sample_logs/*.log
+!src/optimize_agent/run_logs/*.log
 *.tar.gz
 *.gz
 *.zip
