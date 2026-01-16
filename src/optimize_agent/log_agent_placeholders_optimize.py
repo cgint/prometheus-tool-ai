@@ -4,10 +4,10 @@ import argparse
 import csv
 import json
 import os
+import re
 import threading
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
-from itertools import product
 from pathlib import Path
 from typing import Any, List, Literal, Optional
 from uuid import uuid4
@@ -209,7 +209,7 @@ def _jsonable(value: Any) -> Any:
         return [_jsonable(v) for v in sorted(value, key=lambda x: str(x))]
 
     if is_dataclass(value):
-        return _jsonable(asdict(value))
+        return _jsonable(asdict(value))  # type: ignore[arg-type]
 
     model_dump = getattr(value, "model_dump", None)
     if callable(model_dump):
@@ -300,6 +300,80 @@ def _write_prediction_dump_json(
     return filename
 
 
+class PlaceholderMetricDetails(BaseModel):
+    example_id: str
+    expected_count: int
+    registered_count: int
+    used_placeholder_count: int
+    count_score: float
+    placeholder_in_answer_score: float
+    final_score: float
+    unregistered_placeholders: list[str]
+
+
+def _placeholder_metric_details(
+    example: dspy.Example, pred: dspy.Prediction
+) -> tuple[PlaceholderMetricDetails, str]:
+    example_id: str = getattr(example, "id", "unknown")
+    expected_count = int(getattr(example, "expected_var_used_count", 0) or 0)
+
+    registered_vars = list(getattr(pred, "registered_var_names", []))
+    registered_count = len(registered_vars) if registered_vars else 0
+
+    if registered_count >= expected_count:
+        count_score = 1.0
+    else:
+        missing_count = expected_count - registered_count
+        count_score = max(0.0, 1.0 - 0.5 * missing_count)
+
+    answer_text = pred.answer or ""
+    used_placeholder_count = sum(
+        1 for var in registered_vars if f"{{{var}}}" in answer_text
+    )
+
+    if expected_count == 0:
+        placeholder_in_answer_score = 1.0
+    else:
+        capped_used_count = min(used_placeholder_count, expected_count)
+        placeholder_in_answer_score = capped_used_count / expected_count
+
+    final_score = (count_score + placeholder_in_answer_score) / 2.0
+
+    placeholder_matches = set(re.findall(r"\{([^\}]+)\}", answer_text))
+    unregistered_placeholders = sorted(
+        var for var in placeholder_matches if var not in registered_vars
+    )
+
+    details = PlaceholderMetricDetails(
+        example_id=example_id,
+        expected_count=expected_count,
+        registered_count=registered_count,
+        used_placeholder_count=used_placeholder_count,
+        count_score=count_score,
+        placeholder_in_answer_score=placeholder_in_answer_score,
+        final_score=final_score,
+        unregistered_placeholders=unregistered_placeholders,
+    )
+
+    unregistered_text = (
+        ", ".join(unregistered_placeholders) if unregistered_placeholders else "none"
+    )
+    if final_score < 1.0:
+        feedback_prefix = (
+            "Use placeholders for all computed values and ensure the variables are registered. "
+            "Do not paste computed data directly."
+        )
+    else:
+        feedback_prefix = "Good: placeholders used and variables registered."
+    feedback = (
+        f"{feedback_prefix} Expected placeholders: {expected_count}. "
+        f"Registered: {registered_count}. Used in answer: {used_placeholder_count}. "
+        f"Unregistered placeholders: {unregistered_text}."
+    )
+
+    return details, feedback
+
+
 def placeholder_metric(
     example: dspy.Example, pred: dspy.Prediction, trace: Any = None
 ) -> float:
@@ -339,33 +413,12 @@ def placeholder_metric(
       Placeholder names do not need to match expected names.
       If expected_count is zero, placeholder usage is not penalized.
     """
-    example_id: str = getattr(example, "id", "unknown")
-    expected_count = int(getattr(example, "expected_var_used_count", 0) or 0)
+    details, _feedback = _placeholder_metric_details(example, pred)
 
-    registered_vars = list(getattr(pred, "registered_var_names", []))
-    registered_count = len(registered_vars) if registered_vars else 0
-
-    if registered_count >= expected_count:
-        count_score = 1.0
-    else:
-        missing_count = expected_count - registered_count
-        count_score = max(0.0, 1.0 - 0.5 * missing_count)
-
-    used_placeholder_count = sum(
-        1 for var in registered_vars if f"{{{var}}}" in pred.answer
-    )
-
-    if expected_count == 0:
-        placeholder_in_answer_score = 1.0
-    else:
-        capped_used_count = min(used_placeholder_count, expected_count)
-        placeholder_in_answer_score = capped_used_count / expected_count
-
-    final_score = (count_score + placeholder_in_answer_score) / 2.0
     msg = (
-        f"test_id={example_id} placeholder_metric final_score={final_score} expected_count={expected_count} "
-        f"registered_count={registered_count} used_placeholder_count={used_placeholder_count} "
-        f"count_score={count_score} placeholder_in_answer_score={placeholder_in_answer_score}"
+        f"test_id={details.example_id} placeholder_metric final_score={details.final_score} expected_count={details.expected_count} "
+        f"registered_count={details.registered_count} used_placeholder_count={details.used_placeholder_count} "
+        f"count_score={details.count_score} placeholder_in_answer_score={details.placeholder_in_answer_score}"
     )
     print(msg)
     run_logger.info(msg)
@@ -373,28 +426,28 @@ def placeholder_metric(
     pred_json_full = _prediction_json(pred)
     pred_json_head, pred_json_tail = _head_tail(pred_json_full, n_chars=100)
     pred_dump_filename = _write_prediction_dump_json(
-        test_id=example_id,
+        test_id=details.example_id,
         pred=pred,
         full_run_log_filename=_CURRENT_RUN_LOG_FILENAME,
     )
     run_logger.info(
         "test_id=%s prediction_json_head=%s prediction_json_tail=%s prediction_json_file=%s",
-        example_id,
+        details.example_id,
         pred_json_head,
         pred_json_tail,
         pred_dump_filename,
     )
     _append_metric_csv_row(
-        test_id=example_id,
-        final_score=final_score,
-        expected_count=expected_count,
-        registered_count=registered_count,
-        used_placeholder_count=used_placeholder_count,
-        count_score=count_score,
-        placeholder_in_answer_score=placeholder_in_answer_score,
+        test_id=details.example_id,
+        final_score=details.final_score,
+        expected_count=details.expected_count,
+        registered_count=details.registered_count,
+        used_placeholder_count=details.used_placeholder_count,
+        count_score=details.count_score,
+        placeholder_in_answer_score=details.placeholder_in_answer_score,
         full_run_log_filename=_CURRENT_RUN_LOG_FILENAME,
     )
-    return final_score
+    return details.final_score
 
 
 def to_percent_int(score: float) -> int:
@@ -493,16 +546,10 @@ def optimize_log_agent(
                     pred_name: Optional[str] = None,
                     pred_trace: Any = None,
                 ) -> float | ScoreWithFeedback:
-                    score = placeholder_metric(gold, pred, trace)
+                    details, feedback = _placeholder_metric_details(gold, pred)
+                    score = details.final_score
                     if pred_name is None:
                         return score
-                    if score < 1.0:
-                        feedback = (
-                            "Use placeholders for all computed values and ensure the variables are registered. "
-                            "Do not paste computed data directly."
-                        )
-                    else:
-                        feedback = "Good: placeholders used and variables registered."
                     return ScoreWithFeedback(score=score, feedback=feedback)
 
             optimizer = dspy.GEPA(
