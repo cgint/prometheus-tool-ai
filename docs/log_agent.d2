@@ -1,46 +1,52 @@
 direction: right
 
-LogAgentModule: {
+"dspy.ReAct": {
   style: {
     fill: "#E8F0FE"
     stroke: "#1A73E8"
   }
-
-  "dspy.ReAct": {
-    "signature: AgentSignature"
-    "max_iters: 10"
-  }
-
-  "ToolCallCallback": {
-    "wraps ToolUsageTracker"
-    "captures tool calls"
-  }
-
-  "ToolUsageTracker": {
-    "stores registered vars"
-    "get_final_output_vars()"
-  }
+  "signature: AgentSignature"
+  "max_iters: 10"
 }
 
-"Python REPL tool": {
+"python_repl (tool)": {
   style: {
     fill: "#E6F4EA"
     stroke: "#137333"
   }
-
-  "python_repl": {
-    "persistent session"
-    "register_for_final_output(...)"
-  }
-
-  "REPL sub-tools": {
-    "fetch_log_data(path)"
-    "get_available_files()"
-  }
+  "persistent session"
+  "register_for_final_output(...)"
 }
 
-"dspy.ReAct" -> "python_repl": "tool use (ReAct)"
-"python_repl" -> "REPL sub-tools": "calls"
+"REPL sub-tools": {
+  style: {
+    fill: "#FEF7E0"
+    stroke: "#B06000"
+  }
+  "fetch_log_data(path)"
+  "get_available_files()"
+}
+
+"ToolCallCallback": {
+  style: {
+    fill: "#FCE8E6"
+    stroke: "#C5221F"
+  }
+  "captures tool calls"
+}
+
+"ToolUsageTracker": {
+  style: {
+    fill: "#FCE8E6"
+    stroke: "#C5221F"
+  }
+  "stores final-output vars"
+  "get_final_output_vars()"
+}
+
+"dspy.ReAct" -> "python_repl (tool)": "ReAct tool use"
+"python_repl (tool)" -> "REPL sub-tools": "calls"
+
 "dspy.ReAct" -> "ToolCallCallback": "callbacks"
 "ToolCallCallback" -> "ToolUsageTracker": "records"
-"ToolUsageTracker" -> "dspy.ReAct": "registered vars\nfor final answer"
+"ToolUsageTracker" -> "dspy.ReAct": "registered vars\n(placeholders in final answer)"

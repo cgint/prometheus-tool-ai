@@ -20,6 +20,15 @@ The prompt contract (in `AgentSignature`) strongly encourages doing computation 
 - `LogAgentModule.forward(question)`: runs the ReAct agent with callbacks enabled, then attaches `registered_vars` and `registered_var_names` onto the returned `dspy.Prediction`.
 - `main()`: configures an LM (`MODEL_NAME_GEMINI_2_5_FLASH`), asks a sample question over three sample log files, runs the agent, and persists logs via `write_agent_logs(...)`.
 
+## Tools (this module)
+The ReAct agent is given exactly one top-level tool and two repo-scoped helper tools inside it:
+- Top-level: `python_repl` (built by `build_python_repl_tool(...)`)
+- REPL sub-tools: `fetch_log_data(path)` and `get_available_files()`
+
+## Callback + tracking (this module)
+- `ToolCallCallback` (registered via `dspy.context(callbacks=[...])`) records tool events into `ToolUsageTracker`.
+- `ToolUsageTracker` exposes `get_final_output_vars()` so `forward()` can attach `pred.registered_vars`.
+
 ## Data flow (high level)
 1) A question is passed to `LogAgentModule.forward()`.
 2) `dspy.ReAct` runs up to `max_iters=10`, calling the Python REPL tool as needed.
