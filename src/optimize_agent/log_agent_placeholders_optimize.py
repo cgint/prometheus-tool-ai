@@ -289,6 +289,23 @@ def _write_prediction_dump_json(
 def placeholder_metric(
     example: dspy.Example, pred: dspy.Prediction, trace: Any = None
 ) -> float:
+    """
+    Evaluate how well the prediction uses expected placeholders.
+
+    Scoring semantics:
+    | Scenario                      | count_score | placeholder_in_answer_score   |
+    |-------------------------------|-------------|-------------------------------|
+    | expected=0, registered=0      | 1.0         | 1.0                           |
+    | expected=2, registered=0      | 0.0         | 0.0                           |
+    | expected=2, registered=2      | 1.0         | ratio of used/registered      |
+    | expected=2, registered=4      | 1.0         | ratio of used/registered      |
+    | expected=4, registered=2      | 0.0         | ratio of used/registered      |
+
+    - count_score: Penalizes only if registered FEWER than expected.
+      Registering MORE is acceptable (no penalty, but no bonus).
+    - placeholder_in_answer_score: Of the placeholders registered,
+      how many are actually used in the answer?
+    """
     example_id: str = getattr(example, "id", "unknown")
     expected_vars: List[str] = getattr(example, "expected_vars", [])
     expected_count = len(expected_vars) if expected_vars else 0
@@ -296,16 +313,22 @@ def placeholder_metric(
     registered_vars = list(getattr(pred, "registered_var_names", []))
     registered_count = len(registered_vars) if registered_vars else 0
 
-    count_diff = abs(registered_count - expected_count)
-    count_score = max(0.0, 1.0 - 0.5 * count_diff)
+    if registered_count >= expected_count:
+        count_score = 1.0
+    else:
+        missing_count = expected_count - registered_count
+        count_score = max(0.0, 1.0 - 0.5 * missing_count)
+
     used_placeholder_count: int | None = None
-    if registered_vars:
+    if registered_count == 0 and expected_count == 0:
+        placeholder_in_answer_score = 1.0
+    elif registered_count == 0 and expected_count > 0:
+        placeholder_in_answer_score = 0.0
+    else:
         used_placeholder_count = sum(
             1 for var in registered_vars if f"{{{var}}}" in pred.answer
         )
         placeholder_in_answer_score = used_placeholder_count / registered_count
-    else:
-        placeholder_in_answer_score = 1.0
 
     final_score = (count_score + placeholder_in_answer_score) / 2.0
     msg = (
