@@ -12,11 +12,11 @@ def _make_repl():
     repo_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo_root / "src"))
 
-    from repl.python_tool_repl import build_python_repl_tool
+    from repl.python_tool_repl import build_hacky_python_repl_tool
     from tool_tracker import ToolUsageTracker
 
     tracker = ToolUsageTracker(debug=False)
-    tool = build_python_repl_tool(tracker=tracker, sub_tools=[], track_sub_tools=False)
+    tool = build_hacky_python_repl_tool(tracker=tracker, sub_tools=[], track_sub_tools=False)
     assert hasattr(tool, "func")
     return tool.func
 

@@ -7,7 +7,7 @@ import dspy
 
 from agent_logging import AgentLogConfig, write_agent_logs
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from repl.python_tool_repl import build_python_repl_tool
+from repl.python_tool_repl import build_hacky_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 
@@ -96,7 +96,7 @@ class LogAgentModule(dspy.Module):
         self.tracker = ToolUsageTracker()
         self.callback = ToolCallCallback(self.tracker)
         self.tools = [
-            build_python_repl_tool(
+            build_hacky_python_repl_tool(
                 self.tracker,
                 sub_tools=[dspy.Tool(fetch_log_data), dspy.Tool(get_available_files)],
                 track_sub_tools=False,

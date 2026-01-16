@@ -6,8 +6,8 @@ from tool_tracker import ToolUsageTracker
 from utils import indent
 
 
-def build_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool], track_sub_tools: bool = False) -> dspy.Tool:
-    """Build a persistent python_repl tool.
+def build_hacky_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool], track_sub_tools: bool = False) -> dspy.Tool:
+    """Build a really hacky and temporary persistent python_repl tool to proof the basic point.
 
     This REPL provides:
     - A persistent Python state across tool calls (assign variables and reuse them).

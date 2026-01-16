@@ -2,7 +2,7 @@ import dspy
 
 from agent_logging import AgentLogConfig, write_agent_logs
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from repl.python_tool_repl import build_python_repl_tool
+from repl.python_tool_repl import build_hacky_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from utils import dspy_configure, get_lm_for_model_name
 
@@ -35,7 +35,7 @@ def main() -> None:
         with dspy.context(lm=lm, callbacks=[callback]):
             # No external tools needed - pure REPL computation
             tools = [
-                build_python_repl_tool(tracker, sub_tools=[], track_sub_tools=False)
+                build_hacky_python_repl_tool(tracker, sub_tools=[], track_sub_tools=False)
             ]
 
             agent = dspy.ReAct(

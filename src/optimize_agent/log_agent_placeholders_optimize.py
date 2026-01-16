@@ -18,7 +18,7 @@ import logging
 
 import dspy
 
-from constants import MODEL_NAME_GEMINI_2_5_FLASH, MODEL_NAME_GEMINI_2_5_FLASH_LITE, MODEL_NAME_GEMINI_2_5_PRO
+from constants import MODEL_NAME_GEMINI_2_5_FLASH
 from optimize_agent.log_agent_placeholders_examples import (
     prepare_test_data,
     prepare_training_data,

@@ -2,7 +2,7 @@ import dspy
 
 from agent_logging import AgentLogConfig, write_agent_logs
 from constants import MODEL_NAME_GEMINI_2_5_FLASH
-from repl.python_tool_repl import build_python_repl_tool
+from repl.python_tool_repl import build_hacky_python_repl_tool
 from tool_tracker import ToolCallCallback, ToolUsageTracker
 from tools.prom import prom_buildinfo, prom_labels, prom_label_values, prom_metrics, prom_query, prom_range
 from utils import dspy_configure, get_lm_for_model_name
@@ -25,7 +25,7 @@ def main() -> None:
                 dspy.Tool(prom_query),
                 dspy.Tool(prom_range),
             ]
-            tools = [build_python_repl_tool(tracker, base_tools)]
+            tools = [build_hacky_python_repl_tool(tracker, base_tools)]
 
             agent = dspy.ReAct(signature="question -> answer", tools=tools, max_iters=12)  # type: ignore[arg-type]
 
