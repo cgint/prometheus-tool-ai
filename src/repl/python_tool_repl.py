@@ -6,7 +6,9 @@ from tool_tracker import ToolUsageTracker
 from utils import indent
 
 
-def build_hacky_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy.Tool], track_sub_tools: bool = False) -> dspy.Tool:
+def build_hacky_python_repl_tool(
+    tracker: ToolUsageTracker, sub_tools: List[dspy.Tool], track_sub_tools: bool = False
+) -> dspy.Tool:
     """Build a really hacky and temporary persistent python_repl tool to proof the basic point.
 
     This REPL provides:
@@ -27,6 +29,25 @@ def build_hacky_python_repl_tool(tracker: ToolUsageTracker, sub_tools: List[dspy
 
     tool_catalog = "\n".join(_format_tool_line(t) for t in sub_tools)
 
+    allowed_imports = {
+        # Common "safe-ish" standard library helpers (no subprocess)
+        "collections",
+        "copy",
+        "csv",
+        "datetime",
+        "decimal",
+        "difflib",
+        "functools",
+        "itertools",
+        "json",
+        "math",
+        "pprint",
+        "re",
+        "statistics",
+        "string",
+        "textwrap",
+    }
+
     repl_instructions_and_tool_info = f"""Persistent Python scratchpad.
 
 Use this REPL to iteratively explore data and compute results.
@@ -37,7 +58,8 @@ Key behaviors:
 - Prefer a few multi-line steps per call (fetch + compact peeks), then follow up with additional calls.
 - Each python_repl call is limited to 30 lines to encourage iterative peek→compute steps, avoid monolithic scripts,
   and bound worst-case runtime/output; split longer code into multiple calls.
-- Imports are allowed but restricted to a safe allowlist; if an import fails, use pre-injected helpers instead.
+- ALLOWED IMPORTS: {sorted(allowed_imports)}.
+  Do NOT attempt to import anything else. It will fail!
 
 Registering data for your final answer:
 - Call `register_for_final_output(name=value, ...)` to register computed values.
@@ -70,30 +92,20 @@ Available functions (callable from Python):
         import sys
         import traceback
 
-        allowed_imports = {
-            # Common "safe-ish" standard library helpers (no subprocess)
-            "collections",
-            "copy",
-            "csv",
-            "datetime",
-            "decimal",
-            "difflib",
-            "functools",
-            "itertools",
-            "json",
-            "math",
-            "pprint",
-            "re",
-            "statistics",
-            "string",
-            "textwrap",
-        }
         _real_import = __import__
 
-        def _safe_import(name: str, globals_: Any = None, locals_: Any = None, fromlist: tuple = (), level: int = 0) -> Any:
+        def _safe_import(
+            name: str,
+            globals_: Any = None,
+            locals_: Any = None,
+            fromlist: tuple = (),
+            level: int = 0,
+        ) -> Any:
             base = name.split(".", 1)[0]
             if base not in allowed_imports:
-                raise ImportError(f"Import '{name}' not allowed. Allowed: {sorted(allowed_imports)}")
+                raise ImportError(
+                    f"Import '{name}' not allowed. Allowed: {sorted(allowed_imports)}"
+                )
             return _real_import(name, globals_, locals_, fromlist, level)
 
         safe_builtins: Dict[str, Any] = {
@@ -158,7 +170,10 @@ Available functions (callable from Python):
             _wrapped.__name__ = tool_name
             return _wrapped
 
-        tools_env: Dict[str, Any] = {name: _wrap_tool(t) if track_sub_tools else t.func for name, t in tools_by_name.items()}
+        tools_env: Dict[str, Any] = {
+            name: _wrap_tool(t) if track_sub_tools else t.func
+            for name, t in tools_by_name.items()
+        }
 
         def register_for_final_output(*args, **kwargs) -> str:
             """Register named values for late-binding into the final answer.
@@ -185,17 +200,27 @@ Available functions (callable from Python):
                         # We only accept it if there's exactly one string element.
                         key_candidates = [x for x in item if isinstance(x, str)]
                         if len(key_candidates) != 1:
-                            raise TypeError("Set form must contain exactly one string key")
+                            raise TypeError(
+                                "Set form must contain exactly one string key"
+                            )
                         k = key_candidates[0]
                         v = next(x for x in item if x is not k)
                         values[k] = v
                     else:
-                        raise TypeError(f"Unsupported item in list: {type(item).__name__}")
+                        raise TypeError(
+                            f"Unsupported item in list: {type(item).__name__}"
+                        )
             elif len(args) != 0:
-                raise TypeError("register_for_final_output expects a dict, a list, or kwargs")
+                raise TypeError(
+                    "register_for_final_output expects a dict, a list, or kwargs"
+                )
 
             values.update(kwargs)
-            non_str = [(k, type(v).__name__) for k, v in values.items() if not isinstance(v, str)]
+            non_str = [
+                (k, type(v).__name__)
+                for k, v in values.items()
+                if not isinstance(v, str)
+            ]
             if non_str:
                 bad = ", ".join(f"{k}={t}" for k, t in non_str)
                 raise TypeError(
@@ -252,7 +277,9 @@ Available functions (callable from Python):
             {
                 k: v
                 for k, v in env.items()
-                if k not in {"__builtins__", "math", "tool_names"} and k not in bindings and k not in tools_env
+                if k not in {"__builtins__", "math", "tool_names"}
+                and k not in bindings
+                and k not in tools_env
             }
         )
 
@@ -278,5 +305,7 @@ Available functions (callable from Python):
             return rendered
         return stdout or "(ok)"
 
-    print(f"\nEmitting Python REPL TOOL with structure:\n{repl_instructions_and_tool_info}\n")
+    print(
+        f"\nEmitting Python REPL TOOL with structure:\n{repl_instructions_and_tool_info}\n"
+    )
     return dspy.Tool(python_repl, desc=repl_instructions_and_tool_info)
