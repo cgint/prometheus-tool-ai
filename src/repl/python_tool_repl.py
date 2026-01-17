@@ -59,7 +59,7 @@ Key behaviors:
 - Each python_repl call is limited to 30 lines to encourage iterative peek→compute steps, avoid monolithic scripts,
   and bound worst-case runtime/output; split longer code into multiple calls.
 - ALLOWED IMPORTS: {sorted(allowed_imports)}.
-  Do NOT attempt to import anything else. It will fail!
+  Do NOT attempt to import anything else. It will fail! Do NOT attempt to use e.g. `os` or `sys` modules!
 
 Registering data for your final answer:
 - Call `register_for_final_output(name=value, ...)` to register computed values.

@@ -63,6 +63,10 @@ class CodeAuditAgentSignature(dspy.Signature):
       For structured data (lists/dicts), format it into the exact text you want to appear in the final answer, then register that string.
     - In your final answer, use placeholders like `Number of items: {item_count}`.
     - NEVER paste computed data directly in your final answer; ONLY use placeholders.
+    - **MANDATORY SEQUENCE**:
+      1. Call `register_for_final_output` with all necessary data.
+      2. Provide a final text response in your thought/message block containing the `{placeholder}` syntax.
+      3. Call `finish()` with no arguments.
     """
 
     question = dspy.InputField()
