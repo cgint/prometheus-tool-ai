@@ -1,0 +1,32 @@
+direction: down
+
+# ReAct (Current)
+ReAct: {
+  label: "Current ReAct + Placeholder"
+  
+  LLM -> REPL: "1. Compute x"
+  REPL -> State: "x = [1..1000]"
+  LLM -> Output: "2. Result: {x}"
+  State -> Output: "3. Inject x"
+  Output -> User: "Result: [1..1000]"
+}
+
+# RLM (Native)
+RLM: {
+  label: "RLM Native (f-strings)"
+  
+  LLM -> REPL: "1. Code: SUBMIT(ans=f'Result: {x}')"
+  REPL -> REPL: "2. Eval f-string"
+  REPL -> User: "3. Result: [1..1000]"
+}
+
+# RLM (Structured)
+RLM_Struct: {
+  label: "RLM Structured (Optional)"
+  
+  LLM -> REPL: "1. Code: SUBMIT(msg='Done', data=x)"
+  REPL -> User: "2. msg='Done', data=[1..1000]"
+}
+
+ReAct -> RLM: "Simpler, Idiomatic"
+RLM -> RLM_Struct: "For UI/Data"
