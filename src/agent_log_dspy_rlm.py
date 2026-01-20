@@ -25,18 +25,16 @@ class LogAnalysis(dspy.Signature):
     ## POLICY: Data Submission
     - Do NOT manually re-type large data or counts into the `SUBMIT` call.
     - ALWAYS use variables from your Python history.
-    - Example: `SUBMIT(summary_text=f"Found {total} errors", ...)`
-    - BAD Example: `SUBMIT(summary_text="Found 6 errors", ...)` (Do not hardcode values!)
+    - Example: `SUBMIT(answer=f"Found {total} errors", ...)`
+    - BAD Example: `SUBMIT(answer="Found 6 errors", ...)` (Do not hardcode values!)
     
     Important: 
     - Use `llm_query(prompt)` if you need semantic understanding (e.g. "is this error critical?").
     - Do not print huge amounts of text.
     """
     question = dspy.InputField()
-    
-    # SUBMIT args:
-    summary_text = dspy.OutputField(desc="A human-readable summary of the findings, including the total counts.")
-    file_counts = dspy.OutputField(desc="A dictionary mapping filenames to their error counts (e.g. {'file1.log': 10}).")
+    answer = dspy.OutputField(desc="A human-readable summary of the findings, including the total counts.")
+
 
 # --- 2. Tool Tracking Wrapper ---
 def track_tool(tracker: ToolUsageTracker, func: Callable) -> Callable:
@@ -96,22 +94,7 @@ class LogAgentRLMModule(dspy.Module):
 
     def forward(self, question: str) -> dspy.Prediction:
         # RLM handles its own execution loop.
-        pred = self.agent(question=question)
-        
-        # Shim 'answer' for the logger
-        if hasattr(pred, "summary_text"):
-            pred.answer = pred.summary_text
-        else:
-            pred.answer = "No summary returned."
-
-        # Let's populate 'registered_vars' for our logger to see the structured data
-        pred.registered_vars = {
-            "file_counts": getattr(pred, "file_counts", {}),
-            "summary_text": getattr(pred, "summary_text", "")
-        }
-        pred.registered_var_names = ["file_counts", "summary_text"]
-        
-        return pred
+        return self.agent(question=question)
 
 def main():
     # Setup
@@ -122,7 +105,7 @@ def main():
     
     q = (
         "Read the local log files in 'src/optimize_agent/sample_logs'. "
-        'For each file, compute how many lines contain the substring "ERROR". ' 
+        'For each file, compute how many lines contain the substring "ERROR". '
         "Also compute the total across all files. "
         "Return a short explanation plus the per-file counts and the total."
     )
@@ -147,8 +130,7 @@ def main():
                 print_raw_answer=True,
             ),
         )
-        print(f"\nFinal Summary: {pred.summary_text}")
-        print(f"File Counts: {pred.file_counts}")
+        print(f"\nFinal Summary: {pred.answer}")
         
     except Exception as e:
         print(f"Error during execution: {e}")
